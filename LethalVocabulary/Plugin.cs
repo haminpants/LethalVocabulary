@@ -1,11 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Speech.Recognition;
 using BepInEx;
 using BepInEx.Logging;
+using GameNetcodeStuff;
 using HarmonyLib;
-using UnityEngine;
 using Random = UnityEngine.Random;
 
 namespace LethalVocabulary;
@@ -19,7 +18,7 @@ public class Plugin : BaseUnityPlugin {
     private static SpeechRecognizer _speechRecognizer;
     private static readonly Dictionary<string, HashSet<string>> Categories = new();
     private static readonly HashSet<string> ActiveBlacklist = new();
-    private static bool _checkVocabulary;
+    public static bool CheckVocabulary;
 
     public new static Config Config { get; internal set; }
 
@@ -34,32 +33,14 @@ public class Plugin : BaseUnityPlugin {
         logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
     }
 
-    public static void ProcessSpeech (object sender, SpeechRecognizedEventArgs e) {
-        var speech = e.Result.Text;
-        var confidence = e.Result.Confidence;
-
-        logger.LogInfo("Heard \"" + speech + "\" with " + confidence + " confidence.");
-
-        if (!StringIsIllegal(speech)) return;
-        var player = RoundManager.Instance != null
-            ? RoundManager.Instance.playersManager.localPlayerController
-            : null;
-        if (player != null) CreateExplosion(player.transform.position);
-    }
-
     // ================
     // Helper functions
     // ================
-    private static bool StringIsIllegal (string @string) {
+    public static bool StringIsIllegal (string @string) {
         foreach (var word in ActiveBlacklist)
             if (@string.Contains(word))
                 return true;
         return false;
-    }
-
-    private static void CreateExplosion (Vector3 position) {
-        var posOffset = new Vector3(Random.Range(-0.5f, 0.5f), 0, Random.Range(-0.5f, 0.5f));
-        Landmine.SpawnExplosion(position + posOffset, true, 1f, 0f);
     }
 
     private static void DisplayHUDTip (string title, string description, bool isWarning) {
@@ -128,25 +109,38 @@ public class Plugin : BaseUnityPlugin {
         return word.All(c => !char.IsLetter(c) || char.IsUpper(c));
     }
 
+    // ======================================
+    // Patch to add PenaltyManager to players
+    // ======================================
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(PlayerControllerB), "ConnectClientToPlayerObject")]
+    private static void AddPenaltyManagerPatch (ref PlayerControllerB __instance) {
+        GameNetworkManager.Instance.localPlayerController.gameObject.AddComponent<PenaltyManager>();
+        logger.LogInfo("Added Penalty Manager!");
+    }
+
     // ==============================
     // Patch text-based communication
     // ==============================
-    [HarmonyPatch(typeof(HUDManager), "SubmitChat_performed")]
     [HarmonyPrefix]
+    [HarmonyPatch(typeof(HUDManager), "SubmitChat_performed")]
     private static void SubmitChat_performedPatch (ref HUDManager __instance) {
         var message = __instance.chatTextField.text.ToLower();
-        if (_checkVocabulary && StringIsIllegal(message)) {
-            CreateExplosion(__instance.localPlayer.transform.position);
+        if (CheckVocabulary && StringIsIllegal(message)) {
+            __instance.playersManager.localPlayerController.GetComponent<PenaltyManager>()
+                .CreateExplosionServerRpc(__instance.playersManager.localPlayerController.transform.position);
             __instance.chatTextField.text = "";
         }
     }
 
-    [HarmonyPatch(typeof(Terminal), "ParsePlayerSentence")]
     [HarmonyPrefix]
+    [HarmonyPatch(typeof(Terminal), "ParsePlayerSentence")]
     private static void ParsePlayerTerminalPatch (ref Terminal __instance) {
         var command = __instance.inputFieldText.text.ToLower();
-        if (_checkVocabulary && StringIsIllegal(command)) {
-            CreateExplosion(__instance.roundManager.playersManager.localPlayerController.transform.position);
+        if (CheckVocabulary && StringIsIllegal(command)) {
+            __instance.roundManager.playersManager.localPlayerController.GetComponent<PenaltyManager>()
+                .CreateExplosionServerRpc(__instance.roundManager.playersManager.localPlayerController.transform
+                    .position);
             if (command.StartsWith("transmit")) __instance.inputFieldText.text = "";
         }
     }
@@ -154,27 +148,27 @@ public class Plugin : BaseUnityPlugin {
     // =======================
     // Patch level load states
     // =======================
-    [HarmonyPatch(typeof(RoundManager), "FinishGeneratingNewLevelClientRpc")]
     [HarmonyPostfix]
-    private static void FinishGeneratingNewLevelClientRpcPatch () {
+    [HarmonyPatch(typeof(RoundManager), "FinishGeneratingNewLevelClientRpc")]
+    private static void FinishGeneratingNewLevelClientRpcPatch (ref RoundManager __instance) {
         if (ActiveBlacklist.Count <= 0) {
             var categories = PickRandomCategories(Config.CategoriesPerMoon.Value);
             DisplayHUDTip("Don't talk about...", string.Join(", ", categories), false);
             foreach (var category in categories) ActiveBlacklist.UnionWith(Categories[category]);
         }
 
-        _checkVocabulary = true;
+        CheckVocabulary = true;
     }
 
-    [HarmonyPatch(typeof(StartOfRound), "EndOfGameClientRpc")]
     [HarmonyPostfix]
+    [HarmonyPatch(typeof(StartOfRound), "EndOfGameClientRpc")]
     private static void EndOfGameClientRpcPatch () {
         ActiveBlacklist.Clear();
-        _checkVocabulary = false;
+        CheckVocabulary = false;
     }
 
-    [HarmonyPatch(typeof(GameNetworkManager), "Disconnect")]
     [HarmonyPostfix]
+    [HarmonyPatch(typeof(GameNetworkManager), "Disconnect")]
     private static void DisconnectPatch () {
         EndOfGameClientRpcPatch();
     }

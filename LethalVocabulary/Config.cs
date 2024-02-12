@@ -34,7 +34,7 @@ public class Config {
         SnareFleaWords = cfg.Bind("Dictionary.Entities",
             "SnareFlea",
             "snare,flea,fleas,centipede,centipedes,HEAD,CRAB,CRABS,FACE,HUGGER,HUGGERS",
-            "Words that count as mentioning the Snare FleaDefault:snare,flea,fleas,centipede,centipedes,HEAD,CRAB,CRABS,FACE,HUGGER,HUGGERS");
+            "Words that count as mentioning the Snare Flea\nDefault:snare,flea,fleas,centipede,centipedes,HEAD,CRAB,CRABS,FACE,HUGGER,HUGGERS");
         BunkerSpiderWords = cfg.Bind("Dictionary.Entities",
             "BunkerSpider",
             "bunker,spider,spiders,arachnid,arachnids,web,webs",

@@ -14,15 +14,15 @@ public class Config {
     public static ConfigEntry<string> GhostGirlWords;
     public static ConfigEntry<string> SporeLizardWords;
     public static ConfigEntry<string> NutCrackerWords;
+    public static ConfigEntry<string> CoilHeadWords;
     public static ConfigEntry<string> JesterWords;
     public static ConfigEntry<string> MaskedWords;
     public static ConfigEntry<string> EyelessDogWords;
     public static ConfigEntry<string> ForestKeeperWords;
     public static ConfigEntry<string> EarthLeviathanWords;
     public static ConfigEntry<string> BaboonHawkWords;
-    public static ConfigEntry<bool> DebugSTTWords;
 
-    public Config(ConfigFile cfg) {
+    public Config (ConfigFile cfg) {
         ExtendedWordsEnabled = cfg.Bind("Gameplay",
             "EnableExtendedWords",
             false,
@@ -49,7 +49,7 @@ public class Config {
             "Words that count as mentioning the BrackenDefault:bracken,flower,man,SHADOW,BLACK");
         ThumperWords = cfg.Bind("Dictionary.Entities",
             "Thumper",
-            "thumper,thumpers,halve,halves,crawler,crawlers,BEAST,TWO LEG,TWO LEGGED",
+            "thumper,thumpers,crawler,crawlers,BEAST,TWO LEG,TWO LEGGED",
             "Words that count as mentioning the ThumperDefault:Words that count as mentioning the BrackenDefault:bracken,flower,man,SHADOW,BLACK");
         HygrodereWords = cfg.Bind("Dictionary.Entities",
             "Hygrodere",
@@ -67,9 +67,13 @@ public class Config {
             "Nutcracker",
             "nut,nuts,cracker,crackers,shotgun,gun,soldier",
             "Words that count as mentioning the NutcrackerDefault:nut,nuts,cracker,crackers,shotgun,gun,soldier");
+        CoilHeadWords = cfg.Bind("Dictionary.Entities",
+            "CoilHead",
+            "coil,coils,head,heads",
+            "Words that count as mentioning the Coil Head");
         JesterWords = cfg.Bind("Dictionary.Entities",
             "Jester",
-            "jester,music,wind,winding",
+            "jester,winding",
             "Words that count as mentioning the Jester");
         MaskedWords = cfg.Bind("Dictionary.Entities",
             "Masked",
@@ -91,9 +95,5 @@ public class Config {
             "BaboonHawk",
             "baboon,baboons,hawk,hawks",
             "Words that count as mentioning the Baboon Hawk");
-        DebugSTTWords = cfg.Bind("Debug",
-            "LogSpeechToTextOutput",
-            true,
-            "Log all words and confidence");
     }
 }

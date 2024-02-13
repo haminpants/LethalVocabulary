@@ -1,17 +1,23 @@
 ﻿using Unity.Netcode;
-using UnityEngine;
 
 namespace LethalVocabulary;
 
 public class PenaltyManager : NetworkBehaviour {
+    public static PenaltyManager Instance;
+
+    private void Awake () {
+        Instance = this;
+    }
+
     [ServerRpc(RequireOwnership = false)]
-    public void CreateExplosionServerRpc (Vector3 position) {
-        var posOffset = new Vector3(Random.Range(-0.5f, 0.5f), 0, Random.Range(-0.5f, 0.5f));
-        CreateExplosionClientRpc(position + posOffset);
+    public void PunishPlayerServerRpc (ulong clientId) {
+        PunishPlayerClientRpc(clientId);
     }
 
     [ClientRpc]
-    public void CreateExplosionClientRpc (Vector3 position) {
-        Landmine.SpawnExplosion(position, true, 1, 0);
+    public void PunishPlayerClientRpc (ulong clientId) {
+        if (StartOfRound.Instance == null) return;
+        var player = StartOfRound.Instance.allPlayerObjects[clientId];
+        Landmine.SpawnExplosion(player.transform.position, true, 1, 0);
     }
 }

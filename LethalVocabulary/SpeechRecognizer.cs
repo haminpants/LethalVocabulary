@@ -1,30 +1,28 @@
-﻿using System.Speech.Recognition;
+﻿using System;
+using System.Speech.Recognition;
 
 namespace LethalVocabulary;
 
 public class SpeechRecognizer {
-    private static readonly SpeechRecognitionEngine Recognizer = new();
-
     private static readonly Grammar CommonWords = new(new GrammarBuilder(new Choices(
         "cog", "heck", "some", "something", "ok", "way", "main", "fire", "exit", "hello", "lyrics", "uh", "oh",
-        "hi", "sing", "sky", "forever", "for", "see", "fly", "word"
+        "hi", "sing", "sky", "forever", "for", "see", "fly", "word", "what", "hey", "hm", "mine", "turret",
+        "door", "lock", "locked", "explode", "exploded", "dead", "end", "pipe", "steam", "smoke", "scrap", "flash",
+        "stun", "light", "shovel", "stop", "sign", "yield", "boom", "boombox", "box", "ladder", "emergency", "pro",
+        "tzp", "inhale", "use", "drop", "miss"
     )));
 
-    public SpeechRecognizer () {
-        Recognizer.SetInputToDefaultAudioDevice();
-        Recognizer.LoadGrammar(CommonWords);
-        Recognizer.LoadGrammar(new Grammar(new GrammarBuilder(new Choices(Plugin.GetAllWords()))));
-        Recognizer.SpeechRecognized += (_, e) => {
-            var speech = e.Result.Text;
-            var confidence = e.Result.Confidence;
-            Plugin.logger.LogInfo("Heard \"" + speech + "\" with " + confidence + " confidence.");
+    private readonly SpeechRecognitionEngine _recognizer = new();
 
-            if (!Plugin.CheckVocabulary || !Plugin.StringIsIllegal(speech) || confidence < 0.85f || 
-                RoundManager.Instance == null) return;
-            var player = RoundManager.Instance.playersManager.localPlayerController;
-            if (player == null || player.isPlayerDead) return;
-            player.GetComponent<PenaltyManager>().CreateExplosionServerRpc(player.transform.position);
-        };
-        Recognizer.RecognizeAsync(RecognizeMode.Multiple);
+    public SpeechRecognizer () {
+        _recognizer.SetInputToDefaultAudioDevice();
+        _recognizer.LoadGrammar(CommonWords);
+        _recognizer.LoadGrammar(new Grammar(new GrammarBuilder(
+            new Choices(Plugin.GetAllWordsFromConfig(true)))));
+        _recognizer.RecognizeAsync(RecognizeMode.Multiple);
+    }
+
+    public void AddSpeechRecognizedHandler (EventHandler<SpeechRecognizedEventArgs> eventHandler) {
+        _recognizer.SpeechRecognized += eventHandler;
     }
 }

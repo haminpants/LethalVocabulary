@@ -14,6 +14,6 @@ public class GameNetworkManagerPatch {
     [HarmonyPostfix]
     [HarmonyPatch("StartDisconnect")]
     private static void PerformDisconnectOperations (ref GameNetworkManager __instance) {
-        Plugin.Instance.EndRound();
+        PenaltyManager.Instance.SetRoundInProgressClientRpc(false);
     }
 }

@@ -16,7 +16,7 @@ public class StartOfRoundPatch {
 
     [HarmonyPostfix]
     [HarmonyPatch("EndOfGameClientRpc")]
-    private static void PerformEndOfGameOperations () {
-        Plugin.Instance.EndRound();
+    private static void PerformEndOfGameOperations (ref StartOfRound __instance) {
+        if (__instance.IsHost) PenaltyManager.Instance.SetRoundInProgressServerRpc(false);
     }
 }

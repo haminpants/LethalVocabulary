@@ -6,7 +6,8 @@ namespace LethalVocabulary.Patches;
 public class RoundManagerPatch {
     [HarmonyPostfix]
     [HarmonyPatch("FinishGeneratingNewLevelClientRpc")]
-    private static void PickNewBannedCategories (ref RoundManager __instance) {
-        Plugin.Instance.StartRound();
+    private static void StartRound (ref RoundManager __instance) {
+        if (!__instance.IsHost || PenaltyManager.Instance.roundInProgress) return;
+        PenaltyManager.Instance.SetRoundInProgressServerRpc(true);
     }
 }

@@ -21,7 +21,7 @@ public class Plugin : BaseUnityPlugin {
     public new static Config Config { get; internal set; }
 
     private void Awake () {
-        // Patch netcode
+        #region Patch Netcode
         var types = Assembly.GetExecutingAssembly().GetTypes();
         foreach (var type in types) {
             var methods = type.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
@@ -30,31 +30,35 @@ public class Plugin : BaseUnityPlugin {
                 if (attributes.Length > 0) method.Invoke(null, null);
             }
         }
-
-        // Initialize variables
-        Instance = this;
-        logger = Logger;
-        _harmony = new Harmony(PluginInfo.PLUGIN_GUID);
-        SpeechRecognizer = new SpeechRecognizer();
-        Config = new Config(base.Config);
-
-        // Load assets
+        #endregion
+        
+        #region Load AssetBundle
         string assetDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
             "lethalvocabularybundle");
         var bundle = AssetBundle.LoadFromFile(assetDir);
         penaltyManagerPrefab = bundle.LoadAsset<GameObject>("Assets/LethalVocabulary/PenaltyManager.prefab");
         penaltyManagerPrefab.AddComponent<PenaltyManager>();
+        #endregion
+        
+        #region Initialize Variables
+        Instance = this;
+        logger = Logger;
+        _harmony = new Harmony(PluginInfo.PLUGIN_GUID);
+        SpeechRecognizer = new SpeechRecognizer();
+        Config = new Config(base.Config);
+        #endregion
 
-        // Add event listener to the speech recognizer
+        #region Add Event Listener To SpeechRecognizer
         SpeechRecognizer.AddSpeechRecognizedHandler((_, e) => {
             string speech = e.Result.Text;
             float confidence = e.Result.Confidence;
             if (Config.LogRecognitions.Value) Logger.LogInfo($"Heard \"{speech}\" with {confidence * 100}% confidence");
 
             var player = StartOfRound.Instance.localPlayerController;
-            if (confidence < 0.85 || player.isPlayerDead || PenaltyManager.Instance.StringIsLegal(speech)) return;
+            if (confidence < 0.90 || player.isPlayerDead || PenaltyManager.Instance.StringIsLegal(speech)) return;
             PenaltyManager.Instance.PunishPlayerServerRpc(player.playerClientId);
         });
+        #endregion
 
         _harmony.PatchAll();
         Logger.LogInfo($"Plugin {PluginInfo.PLUGIN_GUID} is loaded!");
@@ -63,7 +67,7 @@ public class Plugin : BaseUnityPlugin {
     // ================
     // Helper functions
     // ================
-    public static void DisplayHUDTip (string title, string body, bool warning) {
+    public static void DisplayHUDTip (string title, string body, bool warning = false) {
         if (HUDManager.Instance == null) {
             logger.LogInfo("Failed to display tip, no active HUDManager");
             return;

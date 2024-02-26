@@ -30,9 +30,7 @@ public class PenaltyManager : NetworkBehaviour {
         punishCurseWords = Config.PunishCurseWords.Value;
     }
 
-    // ------------------
-    // Player Punishments
-    // ------------------
+    #region Player Punishment Rpcs
     [ServerRpc(RequireOwnership = false)]
     public void PunishPlayerServerRpc (ulong clientId) {
         PunishPlayerClientRpc(clientId);
@@ -43,15 +41,16 @@ public class PenaltyManager : NetworkBehaviour {
         var player = StartOfRound.Instance.allPlayerObjects[clientId];
         Landmine.SpawnExplosion(player.transform.position, true, 1, 0);
     }
+    #endregion
 
-    // ---------------------
-    // Start Round Functions
-    // ---------------------
+    #region Start Round Rpcs
     [ServerRpc]
     public void SetRoundInProgressServerRpc (bool value) {
         var sharedCategoryWords = PickCategory(Config.SharedCategoriesPerMoon.Value);
-        AddSharedCategoriesClientRpc(string.Join(",", sharedCategoryWords[0]),
-            string.Join(",", sharedCategoryWords[1]));
+        string sharedCategories = string.Join(",", sharedCategoryWords[0]);
+        string sharedWords = string.Join(",", sharedCategoryWords[1]);
+        
+        AddSharedCategoriesClientRpc(sharedCategories, sharedWords);
         AddPrivateCategoriesClientRpc(Config.PrivateCategoriesPerMoon.Value);
 
         SetRoundInProgressClientRpc(value);
@@ -64,15 +63,18 @@ public class PenaltyManager : NetworkBehaviour {
         if (roundInProgress) {
             // Create category hints
             string categoryHints = WriteHints();
-            if (categoryHints.Length > 0) Plugin.DisplayHUDTip("Don't talk about...", categoryHints, false);
+            if (categoryHints.Length > 0) Plugin.DisplayHUDTip("Don't talk about...", categoryHints);
 
             // Add words to and start the recognizer
             var words = new HashSet<string>();
             words.UnionWith(SharedWords);
             words.UnionWith(PrivateWords);
-            _allBannedWords = SpeechRecognizer.CreateGrammar(words, "category", 1);
-            Plugin.Instance.SpeechRecognizer.AddGrammar(_allBannedWords);
-            Plugin.Instance.SpeechRecognizer.Start();
+            if (punishCurseWords) words.UnionWith(SpeechRecognizer.DefaultCurseWordsSet);
+            _allBannedWords = new(SpeechRecognizer.CreateSrgs(words)) {
+                Name = "category", Priority = 1
+            };
+            
+            Plugin.Instance.SpeechRecognizer.LoadAndStart(_allBannedWords);
         }
         else {
             SharedCategories.Clear();
@@ -80,8 +82,7 @@ public class PenaltyManager : NetworkBehaviour {
             SharedWords.Clear();
             PrivateCategories.Clear();
             PrivateWords.Clear();
-            Plugin.Instance.SpeechRecognizer.Stop();
-            Plugin.Instance.SpeechRecognizer.UnloadGrammar(_allBannedWords);
+            Plugin.Instance.SpeechRecognizer.StopAndUnload(_allBannedWords);
         }
     }
 
@@ -97,10 +98,9 @@ public class PenaltyManager : NetworkBehaviour {
         PrivateCategories.UnionWith(categoryWords[0]);
         PrivateWords.UnionWith(categoryWords[1]);
     }
+    #endregion
 
-    // -----------------------
-    // Toggle PunishCurseWords
-    // -----------------------
+    #region Change Game Setting Rpcs
     [ServerRpc]
     public void TogglePunishCurseWordsServerRpc () {
         punishCurseWords = !punishCurseWords;
@@ -111,31 +111,30 @@ public class PenaltyManager : NetworkBehaviour {
     public void SetPunishCurseWordsClientRpc (bool value) {
         if (!IsHost) punishCurseWords = value;
         if (punishCurseWords)
-            Plugin.DisplayHUDTip("Curse words are banned!", "Watch your language...", false);
+            Plugin.DisplayHUDTip("Curse words will be banned!", "Applies on the next moon\nWatch your language...");
         else
-            Plugin.DisplayHUDTip("Curse words are legal!", "Go wild ;)", false);
+            Plugin.DisplayHUDTip("Curse words will be legal!", "Applies on the next moon\nGo wild ;)");
     }
+    #endregion
 
-    // ---------------------
-    // Sync current settings
-    // ---------------------
+    #region Sync Game Settings Rpcs
     [ServerRpc(RequireOwnership = false)]
     public void RequestCurrentSettingsServerRpc (ulong syncClientId) {
-        SendCurrentSettingsClientRpc(syncClientId, roundInProgress, punishCurseWords, hideSharedCategories,
+        SendCurrentSettingsClientRpc(syncClientId, punishCurseWords, hideSharedCategories,
             hidePrivateCategories);
     }
 
     [ClientRpc]
-    public void SendCurrentSettingsClientRpc (ulong syncClientId, bool setRip, bool setPcw, bool setHsc, bool setHpc) {
+    public void SendCurrentSettingsClientRpc (ulong syncClientId, bool setPcw, bool setHsc, bool setHpc) {
         if (StartOfRound.Instance.localPlayerController.playerClientId != syncClientId) return;
-        roundInProgress = setRip;
         punishCurseWords = setPcw;
         hideSharedCategories = setHsc;
         hidePrivateCategories = setHpc;
         Plugin.logger.LogInfo(
-            $"Received settings from host! (RoundInProgress={roundInProgress}, PunishCurseWords={punishCurseWords}, " +
-            $"HideSharedCategories={hideSharedCategories}, HidePrivateCategories={hidePrivateCategories})");
+            $"Received settings from host:\nPunishCurseWords={punishCurseWords}\n" +
+            $"HideSharedCategories={hideSharedCategories}\nHidePrivateCategories={hidePrivateCategories}");
     }
+    #endregion
 
     // --------------
     // Helper Methods
@@ -179,7 +178,7 @@ public class PenaltyManager : NetworkBehaviour {
         return new[] { selectedCategories, selectedWords };
     }
 
-    public string WriteHints () {
+    private string WriteHints () {
         string categoryHints = "";
         if (!hideSharedCategories)
             categoryHints += string.Join(", ", SharedCategories);

@@ -35,7 +35,7 @@ public class HUDManagerPatch {
             case "cw":
             case "cursewords":
                 if (!playerController.IsHost) {
-                    Plugin.DisplayHUDTip("Only the host can toggle this setting!", "", false);
+                    Plugin.DisplayHUDTip("Only the host can toggle this setting!", "");
                     break;
                 }
 

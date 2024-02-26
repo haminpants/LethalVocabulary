@@ -4,7 +4,7 @@
         <TargetFramework>netstandard2.1</TargetFramework>
         <AssemblyName>LethalVocabulary</AssemblyName>
         <Description>A mod for Lethal Company that makes your vocabulary a little more... lethal.</Description>
-        <Version>0.1.5</Version>
+        <Version>0.1.6</Version>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <LangVersion>latest</LangVersion>
     </PropertyGroup>

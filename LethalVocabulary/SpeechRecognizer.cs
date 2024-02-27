@@ -37,7 +37,7 @@ public class SpeechRecognizer {
 
     public static SrgsDocument CreateSrgs (HashSet<string> triggerWords) {
         SrgsRule rule = new("Rule");
-        SrgsOneOf words = new();
+        SrgsOneOf words = new(new SrgsItem("word"));
 
         foreach (string word in triggerWords) {
             words.Add(new SrgsItem(word));

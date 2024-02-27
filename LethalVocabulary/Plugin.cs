@@ -53,9 +53,17 @@ public class Plugin : BaseUnityPlugin {
             string speech = e.Result.Text;
             float confidence = e.Result.Confidence;
             if (Config.LogRecognitions.Value) Logger.LogInfo($"Heard \"{speech}\" with {confidence * 100}% confidence");
+            if (confidence < 0.90) return;
+
+            if (speech.Contains("word")) {
+                if (speech.Contains("what's") || speech.Contains("forgot")) {
+                    PenaltyManager.Instance.DisplayCategoryHints();
+                    return;
+                }
+            }
 
             var player = StartOfRound.Instance.localPlayerController;
-            if (confidence < 0.90 || player.isPlayerDead || PenaltyManager.Instance.StringIsLegal(speech)) return;
+            if (player.isPlayerDead || PenaltyManager.Instance.StringIsLegal(speech)) return;
             PenaltyManager.Instance.PunishPlayerServerRpc(player.playerClientId);
         });
         #endregion

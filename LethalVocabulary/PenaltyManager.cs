@@ -49,10 +49,12 @@ public class PenaltyManager : NetworkBehaviour {
         var sharedCategoryWords = PickCategory(Config.SharedCategoriesPerMoon.Value);
         string sharedCategories = string.Join(",", sharedCategoryWords[0]);
         string sharedWords = string.Join(",", sharedCategoryWords[1]);
-        
-        AddSharedCategoriesClientRpc(sharedCategories, sharedWords);
-        AddPrivateCategoriesClientRpc(Config.PrivateCategoriesPerMoon.Value);
 
+        if (!StartOfRound.Instance.currentLevel.PlanetName.Equals("71 Gordion")) {
+            AddSharedCategoriesClientRpc(sharedCategories, sharedWords);
+            AddPrivateCategoriesClientRpc(Config.PrivateCategoriesPerMoon.Value);
+        }
+        
         SetRoundInProgressClientRpc(value);
     }
 
@@ -61,10 +63,6 @@ public class PenaltyManager : NetworkBehaviour {
         roundInProgress = value;
 
         if (roundInProgress) {
-            // Create category hints
-            string categoryHints = WriteHints();
-            if (categoryHints.Length > 0) Plugin.DisplayHUDTip("Don't talk about...", categoryHints);
-
             // Add words to and start the recognizer
             var words = new HashSet<string>();
             words.UnionWith(SharedWords);
@@ -75,6 +73,7 @@ public class PenaltyManager : NetworkBehaviour {
             };
             
             Plugin.Instance.SpeechRecognizer.LoadAndStart(_allBannedWords);
+            DisplayCategoryHints();
         }
         else {
             SharedCategories.Clear();
@@ -178,12 +177,13 @@ public class PenaltyManager : NetworkBehaviour {
         return new[] { selectedCategories, selectedWords };
     }
 
-    private string WriteHints () {
+    public void DisplayCategoryHints () {
         string categoryHints = "";
         if (!hideSharedCategories)
             categoryHints += string.Join(", ", SharedCategories);
         if (!hidePrivateCategories)
             categoryHints += (categoryHints.Length > 0 ? ", " : "") + string.Join(", ", PrivateCategories);
-        return categoryHints;
+        
+        if (categoryHints.Length > 0) Plugin.DisplayHUDTip("Don't talk about...", categoryHints);
     }
 }

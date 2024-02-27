@@ -41,6 +41,24 @@ public class HUDManagerPatch {
 
                 PenaltyManager.Instance.TogglePunishCurseWordsServerRpc();
                 break;
+            case "sc":
+            case "sharedcategories":
+                if (!playerController.IsHost) {
+                    Plugin.DisplayHUDTip("Only the host can toggle this setting!", "");
+                    break;
+                }
+
+                PenaltyManager.Instance.ToggleHideSharedCategoriesServerRpc();
+                break;
+            case "pc":
+            case "privatecategories":
+                if (!playerController.IsHost) {
+                    Plugin.DisplayHUDTip("Only the host can toggle this setting!", "");
+                    break;
+                }
+
+                PenaltyManager.Instance.ToggleHidePrivateCategoriesServerRpc();
+                break;
         }
 
         textField.text = "";

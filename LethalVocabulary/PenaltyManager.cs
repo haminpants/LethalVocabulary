@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Speech.Recognition;
 using Unity.Netcode;
 using Random = UnityEngine.Random;
 
@@ -18,7 +17,6 @@ public class PenaltyManager : NetworkBehaviour {
     public readonly HashSet<string> PrivateWords = new();
     public readonly HashSet<string> SharedCategories = new();
     public readonly HashSet<string> SharedWords = new();
-    private Grammar _allBannedWords;
 
     private Dictionary<string, HashSet<string>> _categories;
 
@@ -31,6 +29,7 @@ public class PenaltyManager : NetworkBehaviour {
     }
 
     #region Player Punishment Rpcs
+
     [ServerRpc(RequireOwnership = false)]
     public void PunishPlayerServerRpc (ulong clientId) {
         PunishPlayerClientRpc(clientId);
@@ -41,20 +40,22 @@ public class PenaltyManager : NetworkBehaviour {
         var player = StartOfRound.Instance.allPlayerObjects[clientId];
         Landmine.SpawnExplosion(player.transform.position, true, 1, 0);
     }
+
     #endregion
 
     #region Start Round Rpcs
+
     [ServerRpc]
     public void SetRoundInProgressServerRpc (bool value) {
-        var sharedCategoryWords = PickCategory(Config.SharedCategoriesPerMoon.Value);
-        string sharedCategories = string.Join(",", sharedCategoryWords[0]);
-        string sharedWords = string.Join(",", sharedCategoryWords[1]);
-
         if (!StartOfRound.Instance.currentLevel.PlanetName.Equals("71 Gordion")) {
+            var sharedCategoryWords = PickCategory(Config.SharedCategoriesPerMoon.Value);
+            string sharedCategories = string.Join(",", sharedCategoryWords[0]);
+            string sharedWords = string.Join(",", sharedCategoryWords[1]);
+
             AddSharedCategoriesClientRpc(sharedCategories, sharedWords);
             AddPrivateCategoriesClientRpc(Config.PrivateCategoriesPerMoon.Value);
         }
-        
+
         SetRoundInProgressClientRpc(value);
     }
 
@@ -68,11 +69,8 @@ public class PenaltyManager : NetworkBehaviour {
             words.UnionWith(SharedWords);
             words.UnionWith(PrivateWords);
             if (punishCurseWords) words.UnionWith(SpeechRecognizer.DefaultCurseWordsSet);
-            _allBannedWords = new(SpeechRecognizer.CreateSrgs(words)) {
-                Name = "category", Priority = 1
-            };
-            
-            Plugin.Instance.SpeechRecognizer.LoadAndStart(_allBannedWords);
+
+            Plugin.Instance.SpeechRecognizer.LoadAndStart(words);
             DisplayCategoryHints();
         }
         else {
@@ -81,7 +79,7 @@ public class PenaltyManager : NetworkBehaviour {
             SharedWords.Clear();
             PrivateCategories.Clear();
             PrivateWords.Clear();
-            Plugin.Instance.SpeechRecognizer.StopAndUnload(_allBannedWords);
+            Plugin.Instance.SpeechRecognizer.StopAndUnload();
         }
     }
 
@@ -97,9 +95,12 @@ public class PenaltyManager : NetworkBehaviour {
         PrivateCategories.UnionWith(categoryWords[0]);
         PrivateWords.UnionWith(categoryWords[1]);
     }
+
     #endregion
 
     #region Change Game Setting Rpcs
+
+    // --- Toggle Curse Words Rpcs
     [ServerRpc]
     public void TogglePunishCurseWordsServerRpc () {
         punishCurseWords = !punishCurseWords;
@@ -114,13 +115,42 @@ public class PenaltyManager : NetworkBehaviour {
         else
             Plugin.DisplayHUDTip("Curse words will be legal!", "Applies on the next moon\nGo wild ;)");
     }
+
+    // --- Toggle Hide Shared Category Rpcs
+    [ServerRpc]
+    public void ToggleHideSharedCategoriesServerRpc () {
+        hideSharedCategories = !hideSharedCategories;
+        SetHideSharedCategoriesClientRpc(hideSharedCategories);
+        Plugin.DisplayHUDTip(
+            hideSharedCategories ? "Shared Categories will be hidden" : "Shared Categories will be shown", "");
+    }
+
+    [ClientRpc]
+    public void SetHideSharedCategoriesClientRpc (bool value) {
+        if (!IsHost) hideSharedCategories = value;
+    }
+
+    // --- Toggle Hide Private Category Rpcs
+    [ServerRpc]
+    public void ToggleHidePrivateCategoriesServerRpc () {
+        hidePrivateCategories = !hidePrivateCategories;
+        SetHidePrivateCategoriesClientRpc(hidePrivateCategories);
+        Plugin.DisplayHUDTip(
+            hidePrivateCategories ? "Private Categories will be hidden" : "Private Categories will be shown", "");
+    }
+
+    [ClientRpc]
+    public void SetHidePrivateCategoriesClientRpc (bool value) {
+        if (!IsHost) hidePrivateCategories = value;
+    }
+
     #endregion
 
     #region Sync Game Settings Rpcs
+
     [ServerRpc(RequireOwnership = false)]
     public void RequestCurrentSettingsServerRpc (ulong syncClientId) {
-        SendCurrentSettingsClientRpc(syncClientId, punishCurseWords, hideSharedCategories,
-            hidePrivateCategories);
+        SendCurrentSettingsClientRpc(syncClientId, punishCurseWords, hideSharedCategories, hidePrivateCategories);
     }
 
     [ClientRpc]
@@ -133,11 +163,10 @@ public class PenaltyManager : NetworkBehaviour {
             $"Received settings from host:\nPunishCurseWords={punishCurseWords}\n" +
             $"HideSharedCategories={hideSharedCategories}\nHidePrivateCategories={hidePrivateCategories}");
     }
-    #endregion
 
-    // --------------
-    // Helper Methods
-    // --------------
+    #endregion
+    
+    #region Helper Functions
     public bool StringIsLegal (string text) {
         text = text.ToLower();
         if (!roundInProgress) return true;
@@ -183,7 +212,8 @@ public class PenaltyManager : NetworkBehaviour {
             categoryHints += string.Join(", ", SharedCategories);
         if (!hidePrivateCategories)
             categoryHints += (categoryHints.Length > 0 ? ", " : "") + string.Join(", ", PrivateCategories);
-        
+
         if (categoryHints.Length > 0) Plugin.DisplayHUDTip("Don't talk about...", categoryHints);
     }
+    #endregion
 }

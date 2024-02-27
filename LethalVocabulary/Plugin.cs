@@ -22,6 +22,7 @@ public class Plugin : BaseUnityPlugin {
 
     private void Awake () {
         #region Patch Netcode
+
         var types = Assembly.GetExecutingAssembly().GetTypes();
         foreach (var type in types) {
             var methods = type.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
@@ -30,42 +31,48 @@ public class Plugin : BaseUnityPlugin {
                 if (attributes.Length > 0) method.Invoke(null, null);
             }
         }
+
         #endregion
-        
+
         #region Load AssetBundle
+
         string assetDir = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
             "lethalvocabularybundle");
         var bundle = AssetBundle.LoadFromFile(assetDir);
         penaltyManagerPrefab = bundle.LoadAsset<GameObject>("Assets/LethalVocabulary/PenaltyManager.prefab");
         penaltyManagerPrefab.AddComponent<PenaltyManager>();
+
         #endregion
-        
+
         #region Initialize Variables
+
         Instance = this;
         logger = Logger;
         _harmony = new Harmony(PluginInfo.PLUGIN_GUID);
         SpeechRecognizer = new SpeechRecognizer();
         Config = new Config(base.Config);
+
         #endregion
 
         #region Add Event Listener To SpeechRecognizer
+
         SpeechRecognizer.AddSpeechRecognizedHandler((_, e) => {
             string speech = e.Result.Text;
             float confidence = e.Result.Confidence;
             if (Config.LogRecognitions.Value) Logger.LogInfo($"Heard \"{speech}\" with {confidence * 100}% confidence");
             if (confidence < 0.90) return;
 
-            if (speech.Contains("word")) {
+            if (speech.Contains("word"))
                 if (speech.Contains("what's") || speech.Contains("forgot")) {
                     PenaltyManager.Instance.DisplayCategoryHints();
                     return;
                 }
-            }
 
             var player = StartOfRound.Instance.localPlayerController;
             if (player.isPlayerDead || PenaltyManager.Instance.StringIsLegal(speech)) return;
             PenaltyManager.Instance.PunishPlayerServerRpc(player.playerClientId);
         });
+
         #endregion
 
         _harmony.PatchAll();

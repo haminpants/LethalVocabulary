@@ -16,39 +16,39 @@ public class SpeechRecognizer {
     };
 
     private readonly SpeechRecognitionEngine _recognizer = new();
+    private Grammar _triggerGrammar;
 
     public SpeechRecognizer () {
         _recognizer.SetInputToDefaultAudioDevice();
     }
-    
+
     public void AddSpeechRecognizedHandler (EventHandler<SpeechRecognizedEventArgs> eventHandler) {
         _recognizer.SpeechRecognized += eventHandler;
     }
 
-    public void LoadAndStart (Grammar grammar) {
-        _recognizer.LoadGrammar(grammar);
+    public void LoadAndStart (HashSet<string> triggerWords) {
+        _triggerGrammar = new Grammar(CreateSrgs(triggerWords));
+        _recognizer.LoadGrammar(_triggerGrammar);
         _recognizer.RecognizeAsync(RecognizeMode.Multiple);
     }
 
-    public void StopAndUnload (Grammar grammar) {
+    public void StopAndUnload () {
         _recognizer.RecognizeAsyncStop();
-        _recognizer.UnloadGrammar(grammar);
+        _recognizer.UnloadGrammar(_triggerGrammar);
     }
 
     public static SrgsDocument CreateSrgs (HashSet<string> triggerWords) {
         SrgsRule rule = new("Rule");
         SrgsOneOf words = new(new SrgsItem("word"));
 
-        foreach (string word in triggerWords) {
-            words.Add(new SrgsItem(word));
-        }
-        
+        foreach (string word in triggerWords) words.Add(new SrgsItem(word));
+
         rule.Add(new SrgsItem(1, 1, SrgsRuleRef.Dictation));
         rule.Add(new SrgsItem(0, 1, words));
         rule.Add(new SrgsItem(0, 1, SrgsRuleRef.Dictation));
 
         return new SrgsDocument {
-            Rules = { rule }, 
+            Rules = { rule },
             Root = rule
         };
     }

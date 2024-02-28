@@ -2,37 +2,49 @@
 using System.Collections.Generic;
 using System.Linq;
 using Unity.Netcode;
+using UnityEngine;
 using Random = UnityEngine.Random;
 
 namespace LethalVocabulary;
 
 public class PenaltyManager : NetworkBehaviour {
+    public enum Punishment {
+        Explode,
+        Teleport,
+        SnareFlea
+    }
+    
     public static PenaltyManager Instance;
 
     public bool roundInProgress;
     public bool hideSharedCategories;
     public bool hidePrivateCategories;
     public bool punishCurseWords;
+    
+    public readonly HashSet<Punishment> ActivePunishments = new();
     public readonly HashSet<string> PrivateCategories = new();
     public readonly HashSet<string> PrivateWords = new();
     public readonly HashSet<string> SharedCategories = new();
     public readonly HashSet<string> SharedWords = new();
 
     private Dictionary<string, HashSet<string>> _categories;
+    private GameObject _ghostGirlPrefab;
 
     private void Awake () {
         Instance = this;
-        _categories = Config.GetAllCategories();
         hideSharedCategories = Config.HideSharedCategories.Value;
         hidePrivateCategories = Config.HidePrivateCategories.Value;
         punishCurseWords = Config.PunishCurseWords.Value;
+        _categories = Config.GetAllCategories();
+        _ghostGirlPrefab = StartOfRound.Instance.levels
+            .Where(level => level.PlanetName.Contains("Rend")).ToArray()[0]
+            .Enemies.Where(enemy => enemy.enemyType.enemyName.Equals("Girl")).ToArray()[0].enemyType.enemyPrefab;
     }
 
     #region Player Punishment Rpcs
-
     [ServerRpc(RequireOwnership = false)]
     public void PunishPlayerServerRpc (ulong clientId) {
-        PunishPlayerClientRpc(clientId);
+        InverseTeleportPunishmentServerRpc(clientId);
     }
 
     [ClientRpc]
@@ -41,13 +53,56 @@ public class PenaltyManager : NetworkBehaviour {
         Landmine.SpawnExplosion(player.transform.position, true, 1, 0);
     }
 
+    [ServerRpc(RequireOwnership = false)]
+    public void InverseTeleportPunishmentServerRpc (ulong clientId) {
+        if (RoundManager.Instance.insideAINodes.Length == 0) return;
+        GameObject[] insideAINodes = RoundManager.Instance.insideAINodes;
+        Vector3 teleportPosition = insideAINodes[Random.RandomRangeInt(0, insideAINodes.Length)].transform.position;
+        teleportPosition = RoundManager.Instance.GetRandomNavMeshPositionInRadiusSpherical(teleportPosition, 50);
+        
+        InverseTeleportPunishmentClientRpc(clientId, teleportPosition);
+    }
+
+    [ClientRpc]
+    public void InverseTeleportPunishmentClientRpc (ulong clientId, Vector3 teleportPosition) {
+        var player = StartOfRound.Instance.allPlayerScripts[clientId];
+        player.DropAllHeldItems();
+        player.isInElevator = false;
+        player.isInHangarShipRoom = false;
+        player.isInsideFactory = true;
+        player.averageVelocity = 0.0f;
+        player.velocityLastFrame = Vector3.zero;
+        
+        // TODO: figure out how to play the teleporting sound effect
+        player.beamOutParticle.Play();
+        HUDManager.Instance.ShakeCamera(ScreenShakeType.Big);
+        player.TeleportPlayer(teleportPosition);
+        
+        if (player.health > 34) {
+            player.DamagePlayer(34, causeOfDeath: CauseOfDeath.Crushing);
+        }
+        else {
+            player.KillPlayer(Vector3.zero, causeOfDeath: CauseOfDeath.Crushing);
+        }
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    public void GhostGirlChasePunishmentServerRpc (ulong clientId) {
+        var player = StartOfRound.Instance.allPlayerScripts[clientId];
+    }
+    
+    public System.Collections.IEnumerator GhostGirlChasePunishmentCoroutine (GameObject ghostGirl) {
+        yield return new WaitForSeconds(20);
+        Destroy(ghostGirl);
+    }
+    
     #endregion
 
     #region Start Round Rpcs
 
     [ServerRpc]
     public void SetRoundInProgressServerRpc (bool value) {
-        if (!StartOfRound.Instance.currentLevel.PlanetName.Equals("71 Gordion")) {
+        if (value && !StartOfRound.Instance.currentLevel.PlanetName.Equals("71 Gordion")) {
             var sharedCategoryWords = PickCategory(Config.SharedCategoriesPerMoon.Value);
             string sharedCategories = string.Join(",", sharedCategoryWords[0]);
             string sharedWords = string.Join(",", sharedCategoryWords[1]);
@@ -211,7 +266,7 @@ public class PenaltyManager : NetworkBehaviour {
         if (!hideSharedCategories)
             categoryHints += string.Join(", ", SharedCategories);
         if (!hidePrivateCategories)
-            categoryHints += (categoryHints.Length > 0 ? ", " : "") + string.Join(", ", PrivateCategories);
+            categoryHints += (PrivateCategories.Count > 0 ? ", " : "") + string.Join(", ", PrivateCategories);
 
         if (categoryHints.Length > 0) Plugin.DisplayHUDTip("Don't talk about...", categoryHints);
     }

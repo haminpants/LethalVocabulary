@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LethalVocabulary", "LethalVocabulary\LethalVocabulary.csproj", "{72EAB609-680B-44E8-BB97-44B730AA5A74}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LethalVocabularyOld", "LethalVocabularyOld\LethalVocabularyOld.csproj", "{72EAB609-680B-44E8-BB97-44B730AA5A74}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

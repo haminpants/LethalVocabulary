@@ -44,7 +44,7 @@ public class SpeechRecognizer {
         foreach (string word in triggerWords) words.Add(new SrgsItem(word));
 
         rule.Add(new SrgsItem(1, 1, SrgsRuleRef.Dictation));
-        rule.Add(new SrgsItem(0, 1, words));
+        rule.Add(new SrgsItem(1, 1, words));
         rule.Add(new SrgsItem(0, 1, SrgsRuleRef.Dictation));
 
         return new SrgsDocument {

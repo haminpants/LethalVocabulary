@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LethalVocabularyOld", "LethalVocabularyOld\LethalVocabularyOld.csproj", "{72EAB609-680B-44E8-BB97-44B730AA5A74}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LethalVocabulary", "LethalVocabulary\LethalVocabulary.csproj", "{FF2F6ED2-6725-4162-9943-7B7C4CB17910}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -8,9 +8,9 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{72EAB609-680B-44E8-BB97-44B730AA5A74}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{72EAB609-680B-44E8-BB97-44B730AA5A74}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{72EAB609-680B-44E8-BB97-44B730AA5A74}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{72EAB609-680B-44E8-BB97-44B730AA5A74}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FF2F6ED2-6725-4162-9943-7B7C4CB17910}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FF2F6ED2-6725-4162-9943-7B7C4CB17910}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FF2F6ED2-6725-4162-9943-7B7C4CB17910}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FF2F6ED2-6725-4162-9943-7B7C4CB17910}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

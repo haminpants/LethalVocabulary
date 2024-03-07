@@ -2,12 +2,11 @@
 
     <PropertyGroup>
         <TargetFramework>netstandard2.1</TargetFramework>
-        <Description>A mod for Lethal Company that makes your vocabulary a little more... lethal.</Description>
-        <Version>0.1.8</Version>
+        <AssemblyName>LethalVocabulary</AssemblyName>
+        <Description>A mod that makes your vocabulary a little more... lethal.</Description>
+        <Version>0.2.1</Version>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <LangVersion>latest</LangVersion>
-        <PackageId>LethalVocabularyOld</PackageId>
-        <RootNamespace>LethalVocabulary</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
@@ -26,14 +25,14 @@
         <Reference Include="Assembly-CSharp">
             <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Lethal Company\Lethal Company_Data\Managed\Assembly-CSharp.dll</HintPath>
         </Reference>
+        <Reference Include="Unity.Collections">
+            <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Lethal Company\Lethal Company_Data\Managed\Unity.Collections.dll</HintPath>
+        </Reference>
         <Reference Include="Unity.Netcode.Runtime">
             <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Lethal Company\Lethal Company_Data\Managed\Unity.Netcode.Runtime.dll</HintPath>
         </Reference>
         <Reference Include="Unity.TextMeshPro">
             <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Lethal Company\Lethal Company_Data\Managed\Unity.TextMeshPro.dll</HintPath>
-        </Reference>
-        <Reference Include="UnityEngine.UI">
-            <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Lethal Company\Lethal Company_Data\Managed\UnityEngine.UI.dll</HintPath>
         </Reference>
     </ItemGroup>
 </Project>

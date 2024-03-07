@@ -7,13 +7,13 @@ namespace LethalVocabulary.Patches;
 public class GameNetworkManagerPatch {
     [HarmonyPostfix]
     [HarmonyPatch("Start")]
-    private static void AddPenaltyManager (ref GameNetworkManager __instance) {
-        __instance.GetComponent<NetworkManager>().AddNetworkPrefab(Plugin.Instance.penaltyManagerPrefab);
+    private static void AddNetcodeHelperPrefab (ref GameNetworkManager __instance) {
+        __instance.GetComponent<NetworkManager>().AddNetworkPrefab(Plugin.NetcodeHelperPrefab);
     }
 
     [HarmonyPostfix]
     [HarmonyPatch("StartDisconnect")]
     private static void PerformDisconnectOperations (ref GameNetworkManager __instance) {
-        PenaltyManager.Instance.SetRoundInProgressClientRpc(false);
+        Plugin.Instance.SpeechRecognizer.StopRecognizer();
     }
 }

@@ -19,36 +19,20 @@ public class PunishmentManager : NetworkBehaviour {
 
     public static PunishmentManager Instance;
 
+    public readonly Dictionary<string, HashSet<string>> Categories = new();
+    public readonly HashSet<string> ActiveCategories = new();
+    public readonly HashSet<string> ActiveWords = new();
+
+    public readonly NetworkVariable<bool> DisplayCategoryHints = new();
+    public readonly NetworkVariable<bool> MoonInProgress = new();
+    
     private static GameObject _landminePrefab;
     private static ShipTeleporter _teleporter;
 
-    public readonly List<int> ActiveCategories = new();
-    public readonly HashSet<string> ActiveWords = new();
-
-    public readonly NetworkList<FixedString64Bytes> CategoryNames = new();
-    public readonly NetworkList<FixedString512Bytes> CategoryWords = new();
-    public readonly NetworkVariable<bool> DisplayCategoryHints = new();
-    public readonly NetworkVariable<bool> MoonInProgress = new();
-
     public PunishmentManager () {
         Instance = this;
-        CategoryWords.OnListChanged += OnCategoriesChanged;
         MoonInProgress.OnValueChanged += OnMoonInProgressChanged;
         DisplayCategoryHints.OnValueChanged += OnDisplayCategoryHintsChanged;
-    }
-
-    [ServerRpc(RequireOwnership = false)]
-    public void PunishPlayerServerRpc (ulong clientId) {
-        TeleportPunishmentClientRpc(clientId);
-    }
-
-    [ClientRpc]
-    public void ExplodePunishmentClientRpc (ulong clientId) {
-        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
-        PlayerControllerB player = StartOfRound.Instance.allPlayerScripts[clientId];
-        GameObject landmine = Instantiate(_landminePrefab, player.transform.position, Quaternion.identity);
-        landmine.GetComponent<Landmine>().ExplodeMineClientRpc();
-        // TODO: improve this
     }
 
     public bool StringIsLegal (string message, double confidence = 1) {
@@ -65,7 +49,7 @@ public class PunishmentManager : NetworkBehaviour {
 
         return true;
     }
-
+    
     public void LoadConfig () {
         Plugin.Console.LogInfo("Loading config...");
         foreach (KeyValuePair<Category, string> entry in CategoryHelper.CategoryToConfigWords)
@@ -89,7 +73,23 @@ public class PunishmentManager : NetworkBehaviour {
         if (_teleporter == null) Plugin.Console.LogError("Failed to locate Inverse Teleporter resource");
     }
 
-    #region Teleport Punishment Rpcs
+    #region Punishments
+
+    [ServerRpc(RequireOwnership = false)]
+    public void PunishPlayerServerRpc (ulong clientId) {
+        TeleportPunishmentClientRpc(clientId);
+    }
+
+    [ClientRpc]
+    public void ExplodePunishmentClientRpc (ulong clientId) {
+        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+        PlayerControllerB player = StartOfRound.Instance.allPlayerScripts[clientId];
+        GameObject landmine = Instantiate(_landminePrefab, player.transform.position, Quaternion.identity);
+        landmine.GetComponent<Landmine>().ExplodeMineClientRpc();
+        // TODO: improve this
+    }
+
+    #region Teleport Punishment
 
     [ClientRpc]
     public void TeleportPunishmentClientRpc (ulong clientId) {
@@ -130,15 +130,44 @@ public class PunishmentManager : NetworkBehaviour {
 
     #endregion
 
+    #endregion
+
+    #region Send/Receive/Sync Setting Rpcs
+
+    [ServerRpc(RequireOwnership = false)]
+    public void RequestHostCategoriesServerRpc (ulong clientId) {
+        string clientUsername = StartOfRound.Instance.allPlayerScripts[clientId].playerUsername;
+        Plugin.Console.LogInfo($"Received categories request from {clientUsername}, sending categories...");
+
+        SendCategoriesClientRpc(clientId,
+            Categories.Keys.Select(categoryName => new FixedString64Bytes(categoryName)).ToArray(),
+            Categories.Values.Select(wordList => new FixedString512Bytes(string.Join(",", wordList))).ToArray());
+    }
+
+    [ClientRpc]
+    public void SendCategoriesClientRpc (ulong clientId, FixedString64Bytes[] catNames,
+        FixedString512Bytes[] catWords) {
+        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+        string logMessage = $"Received the following categories from the host ({catNames.Length}):\n";
+        for (int i = 0; i < catNames.Length; i++) {
+            logMessage += $"{catNames[i].Value}: \"{catWords[i].Value}\"";
+            if (i < catNames.Length - 1) logMessage += "\n";
+        }
+
+        Plugin.Console.LogInfo(logMessage);
+    }
+
+    #endregion
+
     #region Moon and Category Management Rpcs
 
     [ServerRpc]
     public void SetMoonInProgressServerRpc (bool roundInProgress) {
-        MoonInProgress.Value = roundInProgress;
+        MoonInProgress.Value = roundInProgress; // TODO: see if we still want to use a network variable?
 
         if (roundInProgress) {
-            AddSharedCategoryClientRpc(PickCategory(Config.SharedCategoriesPerMoon.Value));
-            AddPrivateCategoryClientRpc(Config.PrivateCategoriesPerMoon.Value);
+            AddCategoryClientRpc(PickCategory(Config.SharedCategoriesPerMoon.Value));
+            AddRandomCategoryClientRpc(Config.PrivateCategoriesPerMoon.Value);
             StartSpeechRecognitionClientRpc();
             DisplayCategoryHintsClientRpc();
         }
@@ -149,24 +178,19 @@ public class PunishmentManager : NetworkBehaviour {
     }
 
     [ClientRpc]
-    public void AddSharedCategoryClientRpc (int[] categoryIndexes) {
-        ActiveCategories.AddRange(categoryIndexes);
-
-        foreach (string categoryWords in categoryIndexes.Select(index => CategoryWords[index].Value))
-            ActiveWords.UnionWith(ParseSplitString(categoryWords));
+    public void AddCategoryClientRpc (FixedString64Bytes[] sharedCategories) {
+        foreach (FixedString64Bytes categoryName in sharedCategories) {
+            ActiveCategories.Add(categoryName.ToString());
+            ActiveWords.UnionWith(Categories[categoryName.ToString()]);
+            Plugin.Console.LogInfo($"Added {categoryName.Value} ({Categories[categoryName.ToString()]})");
+        }
 
         LogActiveCategories();
     }
 
     [ClientRpc]
-    public void AddPrivateCategoryClientRpc (int amount) {
-        int[] categoryIndexes = PickCategory(amount);
-        ActiveCategories.AddRange(categoryIndexes);
-
-        foreach (string categoryWords in categoryIndexes.Select(index => CategoryWords[index].Value))
-            ActiveWords.UnionWith(ParseSplitString(categoryWords));
-
-        LogActiveCategories();
+    public void AddRandomCategoryClientRpc (int amount) {
+        AddCategoryClientRpc(PickCategory(amount));
     }
 
     [ClientRpc]
@@ -189,32 +213,30 @@ public class PunishmentManager : NetworkBehaviour {
     [ClientRpc]
     public void DisplayCategoryHintsClientRpc () {
         if (!DisplayCategoryHints.Value) return;
-        Plugin.DisplayHUDTip("Don't talk about...", string.Join(", ", ActiveCategories.Select(i => CategoryNames[i])));
+        Plugin.DisplayHUDTip("Don't talk about...", string.Join(", ", ActiveCategories));
     }
 
     #endregion
 
-    #region Helper Functions
+    #region Category Helper Functions
 
-    private int[] PickCategory (int amount, bool allowActiveCategories = false) {
-        List<int> availableCategoryIndexes = new();
-        HashSet<int> selectedCategoryIndexes = new();
+    private FixedString64Bytes[] PickCategory (int amount, bool allowActiveCategories = false) {
+        HashSet<string> availableCategories = new();
+        HashSet<string> selectedCategories = new();
 
         SelectableLevel currentMoon = StartOfRound.Instance.currentLevel;
-        if (currentMoon.PlanetName.Equals("71 Gordion")) return Array.Empty<int>();
+        if (currentMoon.PlanetName.Equals("71 Gordion")) return Array.Empty<FixedString64Bytes>();
 
-        availableCategoryIndexes.AddRange(GetSpawnableEnemiesAsCategories(currentMoon)
-            .Select(category => (int)category));
+        availableCategories.UnionWith(GetSpawnableEnemiesAsCategories(currentMoon).Select(GetCategoryName));
 
-        availableCategoryIndexes.RemoveAll(index =>
-            !allowActiveCategories && (ActiveCategories.Contains(index) || ActiveCategories.Contains(index * -1)));
+        availableCategories.RemoveWhere(category => !allowActiveCategories && ActiveCategories.Contains(category));
 
-        for (int i = 0; i < Math.Max(0, Math.Min(amount, availableCategoryIndexes.Count)); i++) {
-            int index = availableCategoryIndexes[Random.RandomRangeInt(0, availableCategoryIndexes.Count)];
-            selectedCategoryIndexes.Add(index);
+        for (int i = 0; i < Math.Max(0, Math.Min(amount, availableCategories.Count)); i++) {
+            string category = availableCategories.ElementAt(Random.RandomRangeInt(0, availableCategories.Count));
+            selectedCategories.Add(category);
         }
 
-        return selectedCategoryIndexes.ToArray();
+        return selectedCategories.Select(categoryName => new FixedString64Bytes(categoryName)).ToArray();
     }
 
     public void AddCategory (string categoryName, string words) {
@@ -222,23 +244,25 @@ public class PunishmentManager : NetworkBehaviour {
         categoryName = categoryName.Trim();
         switch (categoryName.Length) {
             case > CategoryNameMaxLength:
-                Plugin.Console.LogError($"Category name \"{categoryName}\" exceeds maximum length ({CategoryNameMaxLength})");
+                Plugin.Console.LogError(
+                    $"Category name \"{categoryName}\" exceeds maximum length ({CategoryNameMaxLength})");
                 return;
             case 0:
                 Plugin.Console.LogError($"Category with words \"{words}\" has no name");
                 return;
         }
 
-        if (CategoryNames.Contains(categoryName)) {
+        if (Categories.ContainsKey(categoryName)) {
             Plugin.Console.LogError($"A category with the name \"{categoryName}\" has already been loaded");
             return;
         }
 
-        // Validate words
+        // Validate words (first step seems dumb, but it validates the words in the string so its ok)
         words = string.Join(",", ParseSplitString(words));
         if (words.Length > CategoryWordsMaxLength) {
-            string logMessage = $"Words for category \"{categoryName}\" exceeds maximum length ({CategoryWordsMaxLength})";
-            if (CategoryNames.Count < Enum.GetValues(typeof(Category)).Length) {
+            string logMessage =
+                $"Words for category \"{categoryName}\" exceeds maximum length ({CategoryWordsMaxLength})";
+            if (Categories.Count < Enum.GetValues(typeof(Category)).Length) {
                 Plugin.Console.LogWarning(logMessage);
                 words = words[..CategoryWordsMaxLength];
             }
@@ -249,7 +273,7 @@ public class PunishmentManager : NetworkBehaviour {
         }
         else if (words.Length == 0) {
             string logMessage = $"No words found for category \"{categoryName}\"";
-            if (CategoryNames.Count < Enum.GetValues(typeof(Category)).Length) {
+            if (Categories.Count < Enum.GetValues(typeof(Category)).Length) {
                 Plugin.Console.LogWarning(logMessage);
             }
             else {
@@ -258,26 +282,26 @@ public class PunishmentManager : NetworkBehaviour {
             }
         }
 
-        CategoryNames.Add(categoryName);
-        CategoryWords.Add(words);
+        Categories.Add(categoryName, ParseSplitString(words));
+        Plugin.Console.LogInfo($"Loaded category \"{categoryName}\" with words \"{words}\"");
     }
 
     public void AddCategory (Category category, string words) {
-        string categoryName = CategoryHelper.SpacedCategoryNames.TryGetValue(category, out string spacedCategoryName)
-            ? spacedCategoryName
-            : category.ToString();
-        AddCategory(categoryName, words);
+        AddCategory(GetCategoryName(category), words);
     }
 
-    private static IEnumerable<string> ParseSplitString (string @string, char separator = ',') {
+    private static HashSet<string> ParseSplitString (string @string, char separator = ',') {
         HashSet<string> words = new();
 
         foreach (string word in @string.ToLower().Split(separator)) {
             string trimWord = word.Trim();
-            if (trimWord.Length is 0 or > WordMaxLength) {
-                Plugin.Console.LogWarning($"\"{trimWord}\" exceeds maximum word character length ({WordMaxLength}) " +
-                                          $"and will not be loaded");
-                continue;
+            switch (trimWord.Length) {
+                case > WordMaxLength:
+                    Plugin.Console.LogInfo($"\"{trimWord}\" exceeds maximum word character length ({WordMaxLength}) " +
+                                           $"and will not be loaded");
+                    continue;
+                case 0:
+                    continue;
             }
 
             words.Add(trimWord);
@@ -300,20 +324,21 @@ public class PunishmentManager : NetworkBehaviour {
         return enemyCategories;
     }
 
-    public void LogActiveCategories () {
-        Plugin.Console.LogInfo($"Active Categories ({ActiveCategories.Count}): " +
-                               $"{string.Join(", ", ActiveCategories.Select(i => CategoryNames[i]))}");
+    private static string GetCategoryName (Category category) {
+        return CategoryHelper.SpacedCategoryNames.TryGetValue(category, out string spacedCategoryName)
+            ? spacedCategoryName
+            : category.ToString();
+    }
+
+    private void LogActiveCategories () {
+        Plugin.Console.LogInfo(
+            $"Active Categories ({ActiveCategories.Count}): {string.Join(", ", ActiveCategories)}\n" +
+            $"{string.Join(", ", ActiveWords)}");
     }
 
     #endregion
 
     #region NetworkVariable OnValueChanged Functions
-
-    private static void OnCategoriesChanged (NetworkListEvent<FixedString512Bytes> @event) {
-        int index = @event.Index;
-        string words = @event.Value.ToString();
-        Plugin.Console.LogInfo($"Loaded \"{Instance.CategoryNames[index]}\" with words \"{words}\" (index={index})");
-    }
 
     private static void OnMoonInProgressChanged (bool prev, bool curr) {
         Plugin.Console.LogInfo($"MoonInProgress is now {curr}");

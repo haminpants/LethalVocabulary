@@ -19,10 +19,10 @@ public class SpeechRecognizer {
                 if (confidence > Config.ConfidenceThreshold.Value) Plugin.Console.LogError(logMessage);
                 else Plugin.Console.LogInfo(logMessage);
             }
-            
+
             if (speech.Contains("word") && (speech.Contains("what's") || speech.Contains("forgot")))
                 PunishmentManager.Instance.DisplayCategoryHintsClientRpc();
-            
+
             PunishmentManager.Instance.StringIsLegal(speech, confidence);
         };
 

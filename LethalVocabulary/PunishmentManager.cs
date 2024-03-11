@@ -19,15 +19,16 @@ public class PunishmentManager : NetworkBehaviour {
 
     public static PunishmentManager Instance;
 
-    public readonly Dictionary<string, HashSet<string>> Categories = new();
+    private static GameObject _landminePrefab;
+    private static ShipTeleporter _teleporter;
     public readonly HashSet<string> ActiveCategories = new();
     public readonly HashSet<string> ActiveWords = new();
 
+    public readonly Dictionary<string, HashSet<string>> Categories = new();
+
     public readonly NetworkVariable<bool> DisplayCategoryHints = new();
     public readonly NetworkVariable<bool> MoonInProgress = new();
-    
-    private static GameObject _landminePrefab;
-    private static ShipTeleporter _teleporter;
+    private Punishment _activePunishment;
 
     public PunishmentManager () {
         Instance = this;
@@ -49,13 +50,15 @@ public class PunishmentManager : NetworkBehaviour {
 
         return true;
     }
-    
+
     public void LoadConfig () {
         Plugin.Console.LogInfo("Loading config...");
         foreach (KeyValuePair<Category, string> entry in CategoryHelper.CategoryToConfigWords)
             AddCategory(entry.Key, entry.Value);
 
         // TODO: load custom words
+
+        SetPunishmentFromName(Config.ActivePunishment.Value);
 
         DisplayCategoryHints.Value = Config.DisplayCategoryHints.Value;
     }
@@ -73,20 +76,48 @@ public class PunishmentManager : NetworkBehaviour {
         if (_teleporter == null) Plugin.Console.LogError("Failed to locate Inverse Teleporter resource");
     }
 
+    [ServerRpc(RequireOwnership = false)]
+    public void DisplayHUDTipServerRpc (string header, string body, bool isWarning, ulong clientId = 9999) {
+        DisplayHUDTipClientRpc(header, body, isWarning, clientId);
+    }
+
+    [ClientRpc]
+    public void DisplayHUDTipClientRpc (string header, string body, bool isWarning, ulong clientId) {
+        if (clientId != 9999 && StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+        Plugin.DisplayHUDTip(header, body, isWarning);
+    }
+
     #region Punishments
 
     [ServerRpc(RequireOwnership = false)]
     public void PunishPlayerServerRpc (ulong clientId) {
-        TeleportPunishmentClientRpc(clientId);
+        switch (_activePunishment) {
+            case Punishment.Teleport:
+                TeleportPunishmentClientRpc(clientId);
+                break;
+            case Punishment.Explode:
+                StartCoroutine(DelayExplosionCoroutine(clientId, 1));
+                break;
+        }
+    }
+
+    private IEnumerator DelayExplosionCoroutine (ulong clientId, int delaySeconds) {
+        DisplayHUDTipServerRpc("DETONATION IMMINENT", "", true, clientId);
+        yield return new WaitForSeconds(1);
+        Vector3 triggerPosition = StartOfRound.Instance.allPlayerScripts[clientId].transform.position;
+        yield return new WaitForSeconds(delaySeconds);
+        ClientExplosionAtPositionServerRpc(clientId, triggerPosition);
+    }
+
+    [ServerRpc]
+    public void ClientExplosionAtPositionServerRpc (ulong clientId, Vector3 triggerPosition) {
+        ClientExplosionAtPositionClientRpc(clientId, triggerPosition);
     }
 
     [ClientRpc]
-    public void ExplodePunishmentClientRpc (ulong clientId) {
-        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
-        PlayerControllerB player = StartOfRound.Instance.allPlayerScripts[clientId];
-        GameObject landmine = Instantiate(_landminePrefab, player.transform.position, Quaternion.identity);
-        landmine.GetComponent<Landmine>().ExplodeMineClientRpc();
-        // TODO: improve this
+    public void ClientExplosionAtPositionClientRpc (ulong clientId, Vector3 triggerPosition) {
+        PlayerControllerB localPlayer = StartOfRound.Instance.localPlayerController;
+        Landmine.SpawnExplosion(triggerPosition, true, localPlayer.playerClientId == clientId ? 4f : 0, 0);
     }
 
     #region Teleport Punishment
@@ -99,7 +130,7 @@ public class PunishmentManager : NetworkBehaviour {
             Vector3 teleportPos = insideAINodes[Random.RandomRangeInt(0, insideAINodes.Length)].transform.position;
             teleportPos = RoundManager.Instance.GetRandomNavMeshPositionInRadiusSpherical(teleportPos);
 
-            StartCoroutine(TeleportPlayerCoroutine(player, teleportPos, 34));
+            StartCoroutine(TeleportPlayerCoroutine(player, teleportPos, 48));
         }
 
         player.beamOutBuildupParticle.Play();
@@ -123,12 +154,22 @@ public class PunishmentManager : NetworkBehaviour {
         player.movementAudio.PlayOneShot(_teleporter.teleporterBeamUpSFX);
         Plugin.TeleportPlayer(clientId, teleportPos);
         if (damage > 0) {
-            if (player.health > damage + 5) player.DamagePlayer(damage, causeOfDeath: CauseOfDeath.Crushing);
+            if (player.health >= damage + 2) player.DamagePlayer(damage, causeOfDeath: CauseOfDeath.Crushing);
             else player.KillPlayer(Vector3.zero, causeOfDeath: CauseOfDeath.Crushing);
         }
     }
 
     #endregion
+
+    private void SetPunishmentFromName (string punishmentName) {
+        if (Enum.TryParse(punishmentName, out Punishment punishment)) {
+            Plugin.Console.LogInfo($"Set punishment to {punishment.ToString()}");
+            _activePunishment = punishment;
+        }
+        else {
+            Plugin.Console.LogWarning($"Failed to find punishment with name {punishmentName}");
+        }
+    }
 
     #endregion
 
@@ -141,18 +182,22 @@ public class PunishmentManager : NetworkBehaviour {
 
         SendCategoriesClientRpc(clientId,
             Categories.Keys.Select(categoryName => new FixedString64Bytes(categoryName)).ToArray(),
-            Categories.Values.Select(wordList => new FixedString512Bytes(string.Join(",", wordList))).ToArray());
+            Categories.Values.Select(wordList => new FixedString512Bytes(string.Join(",", wordList))).ToArray(),
+            new FixedString64Bytes(_activePunishment.ToString()));
     }
 
     [ClientRpc]
     public void SendCategoriesClientRpc (ulong clientId, FixedString64Bytes[] catNames,
-        FixedString512Bytes[] catWords) {
+        FixedString512Bytes[] catWords, FixedString64Bytes punishmentName) {
         if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
         string logMessage = $"Received the following categories from the host ({catNames.Length}):\n";
         for (int i = 0; i < catNames.Length; i++) {
+            Categories.Add(catNames[i].Value, ParseSplitString(catWords[i].Value));
             logMessage += $"{catNames[i].Value}: \"{catWords[i].Value}\"";
             if (i < catNames.Length - 1) logMessage += "\n";
         }
+
+        SetPunishmentFromName(punishmentName.Value);
 
         Plugin.Console.LogInfo(logMessage);
     }
@@ -349,4 +394,9 @@ public class PunishmentManager : NetworkBehaviour {
     }
 
     #endregion
+}
+
+public enum Punishment {
+    Teleport,
+    Explode
 }

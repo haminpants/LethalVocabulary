@@ -4,6 +4,7 @@ namespace LethalVocabulary;
 
 public class Config {
     // Gameplay
+    public static ConfigEntry<string> ActivePunishment;
     public static ConfigEntry<int> SharedCategoriesPerMoon;
     public static ConfigEntry<int> PrivateCategoriesPerMoon;
     public static ConfigEntry<bool> DisplayCategoryHints;
@@ -36,6 +37,11 @@ public class Config {
 
     public Config (ConfigFile cfg) {
         #region Bind Gameplay Config
+
+        ActivePunishment = cfg.Bind("Gameplay", "Punishment", Punishment.Teleport.ToString(),
+            new ConfigDescription(
+                "The punishment that will happen on the player upon talking about one of the banned categories.",
+                new AcceptableValueList<string>(Punishment.Teleport.ToString(), Punishment.Explode.ToString())));
 
         SharedCategoriesPerMoon = cfg.Bind("Gameplay", "Shared Categories Per Moon", 1,
             new ConfigDescription(

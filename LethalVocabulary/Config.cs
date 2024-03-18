@@ -38,22 +38,23 @@ public class Config {
     public Config (ConfigFile cfg) {
         #region Bind Gameplay Config
 
-        ActivePunishment = cfg.Bind("Gameplay", "Punishment", Punishment.Teleport.ToString(),
+        ActivePunishment = cfg.Bind("Gameplay", "Punishment", Punishment.Random.ToString(),
             new ConfigDescription(
                 "The punishment that will happen on the player upon talking about one of the banned categories.",
-                new AcceptableValueList<string>(Punishment.Teleport.ToString(), Punishment.Explode.ToString())));
+                new AcceptableValueList<string>(Punishment.Random.ToString(),
+                    Punishment.Teleport.ToString(), Punishment.Explode.ToString())));
 
         SharedCategoriesPerMoon = cfg.Bind("Gameplay", "Shared Categories Per Moon", 1,
             new ConfigDescription(
                 "The number of categories that will be shared among all players each moon. " +
                 "Set this value to 0 to disable shared categories.",
-                new AcceptableValueRange<int>(0, 100)));
+                new AcceptableValueRange<int>(0, 20)));
 
         PrivateCategoriesPerMoon = cfg.Bind("Gameplay", "Private Categories Per Moon", 0,
             new ConfigDescription(
                 "The number of categories that will be randomly selected for each player each moon. " +
                 "Set this value to 0 to disable private categories.",
-                new AcceptableValueRange<int>(0, 100)));
+                new AcceptableValueRange<int>(0, 20)));
 
         DisplayCategoryHints = cfg.Bind("Gameplay", "Display Category Hints", true,
             new ConfigDescription(

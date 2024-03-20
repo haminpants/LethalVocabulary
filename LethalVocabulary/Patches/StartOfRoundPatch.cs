@@ -21,4 +21,15 @@ public class StartOfRoundPatch {
         if (!__instance.IsHost || !PunishmentManager.Instance.MoonInProgress.Value) return;
         PunishmentManager.Instance.SetMoonInProgressServerRpc(false);
     }
+
+    [HarmonyPostfix]
+    [HarmonyPatch("OnShipLandedMiscEvents")]
+    private static void SelectMoonCategories (ref StartOfRound __instance) {
+        if (!__instance.IsHost) return;
+        if (PunishmentManager.Instance.MoonInProgress.Value) {
+            Plugin.Console.LogError("Moon is already in progress");
+            return;
+        }
+        PunishmentManager.Instance.SetMoonInProgressServerRpc(true);
+    }
 }

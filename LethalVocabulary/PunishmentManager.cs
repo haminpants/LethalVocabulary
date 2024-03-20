@@ -18,8 +18,9 @@ public class PunishmentManager : NetworkBehaviour {
     public const int WordMaxLength = 128;
 
     public static PunishmentManager Instance;
-    private static GameObject _landminePrefab;
     private static ShipTeleporter _teleporter;
+    private static StunGrenadeItem _stunGrenade;
+    private static GameObject _landminePrefab;
 
     private readonly Dictionary<string, HashSet<string>> _categories = new();
     public readonly HashSet<string> ActiveCategories = new();
@@ -65,15 +66,21 @@ public class PunishmentManager : NetworkBehaviour {
 
     public void LoadGameResources () {
         Plugin.Console.LogInfo("Loading game resources...");
-        foreach (SpawnableMapObject so in RoundManager.Instance.spawnableMapObjects)
-            if (so.prefabToSpawn.GetComponentInChildren<Landmine>())
-                _landminePrefab = so.prefabToSpawn;
 
-        _teleporter = Resources.FindObjectsOfTypeAll<GameObject>().First(o => o.gameObject.name.Contains("Inverse"))
-            .GetComponent<ShipTeleporter>();
+        // Load object resources
+        _teleporter = Resources.FindObjectsOfTypeAll<GameObject>()
+            .First(o => o.gameObject.name.Contains("Inverse")).GetComponent<ShipTeleporter>();
+        _stunGrenade = Resources.FindObjectsOfTypeAll<GameObject>()
+            .First(o => o.GetComponent<StunGrenadeItem>()).GetComponent<StunGrenadeItem>();
 
-        if (_landminePrefab == null) Plugin.Console.LogError("Failed to locate Landmine resource");
+        // Load hazard resources
+        _landminePrefab = RoundManager.Instance.spawnableMapObjects
+            .First(o => o.prefabToSpawn.GetComponentInChildren<Landmine>() != null).prefabToSpawn;
+
         if (_teleporter == null) Plugin.Console.LogError("Failed to locate Inverse Teleporter resource");
+        if (_stunGrenade == null) Plugin.Console.LogError("Failed to locate Stun Grenade resource");
+        if (_landminePrefab == null) Plugin.Console.LogError("Failed to locate Landmine prefab");
+        Plugin.Console.LogInfo("Finished loading game resources!");
     }
 
     [ServerRpc(RequireOwnership = false)]
@@ -102,31 +109,11 @@ public class PunishmentManager : NetworkBehaviour {
             case Punishment.Explode:
                 StartCoroutine(DelayExplosionCoroutine(clientId, 1));
                 break;
+            case Punishment.Flash:
+                CreateFlashAtPositionClientRpc(clientId);
+                break;
         }
     }
-
-    #region Explosion Punishment
-
-    private IEnumerator DelayExplosionCoroutine (ulong clientId, int delaySeconds) {
-        DisplayHUDTipServerRpc("DETONATION IMMINENT", "", true, clientId);
-        yield return new WaitForSeconds(1);
-        Vector3 triggerPosition = StartOfRound.Instance.allPlayerScripts[clientId].transform.position;
-        yield return new WaitForSeconds(delaySeconds);
-        ClientExplosionAtPositionServerRpc(clientId, triggerPosition);
-    }
-
-    [ServerRpc]
-    public void ClientExplosionAtPositionServerRpc (ulong clientId, Vector3 triggerPosition) {
-        ClientExplosionAtPositionClientRpc(clientId, triggerPosition);
-    }
-
-    [ClientRpc]
-    public void ClientExplosionAtPositionClientRpc (ulong clientId, Vector3 triggerPosition) {
-        PlayerControllerB localPlayer = StartOfRound.Instance.localPlayerController;
-        Landmine.SpawnExplosion(triggerPosition, true, localPlayer.playerClientId == clientId ? 4f : 0, 0);
-    }
-
-    #endregion
 
     #region Teleport Punishment
 
@@ -165,6 +152,42 @@ public class PunishmentManager : NetworkBehaviour {
             if (player.health >= damage + 2) player.DamagePlayer(damage, causeOfDeath: CauseOfDeath.Crushing);
             else player.KillPlayer(Vector3.zero, causeOfDeath: CauseOfDeath.Crushing);
         }
+    }
+
+    #endregion
+    
+    #region Explosion Punishment
+
+    private IEnumerator DelayExplosionCoroutine (ulong clientId, int delaySeconds) {
+        DisplayHUDTipServerRpc("DETONATION IMMINENT", "", true, clientId);
+        yield return new WaitForSeconds(1);
+        Vector3 triggerPosition = StartOfRound.Instance.allPlayerScripts[clientId].transform.position;
+        yield return new WaitForSeconds(delaySeconds);
+        CreateExplosionAtPositionServerRpc(clientId, triggerPosition);
+    }
+
+    [ServerRpc]
+    public void CreateExplosionAtPositionServerRpc (ulong clientId, Vector3 triggerPosition) {
+        CreateExplosionAtPositionClientRpc(clientId, triggerPosition);
+    }
+
+    [ClientRpc]
+    public void CreateExplosionAtPositionClientRpc (ulong clientId, Vector3 triggerPosition) {
+        PlayerControllerB player = StartOfRound.Instance.localPlayerController;
+        Landmine.SpawnExplosion(triggerPosition, true, player.playerClientId == clientId ? 4f : 0, 0);
+    }
+
+    #endregion
+
+    #region Flash Punishment
+
+    [ClientRpc]
+    public void CreateFlashAtPositionClientRpc (ulong clientId = 9999) {
+        PlayerControllerB player = StartOfRound.Instance.localPlayerController;
+        if (clientId != 9999 && player.playerClientId != clientId) return;
+        player.movementAudio.PlayOneShot(_stunGrenade.explodeSFX);
+        StunGrenadeItem.StunExplosion(player.transform.position, true, 1, 0);
+        player.DamagePlayer(30, causeOfDeath: CauseOfDeath.Blast);
     }
 
     #endregion
@@ -234,7 +257,7 @@ public class PunishmentManager : NetworkBehaviour {
     [ServerRpc]
     public void SetMoonInProgressServerRpc (bool moonInProgress) {
         MoonInProgress.Value = moonInProgress;
-
+        
         if (moonInProgress) {
             AddCategoryClientRpc(PickCategory(Config.SharedCategoriesPerMoon.Value));
             AddRandomCategoryClientRpc(Config.PrivateCategoriesPerMoon.Value);
@@ -416,15 +439,12 @@ public class PunishmentManager : NetworkBehaviour {
         Plugin.Console.LogInfo($"MoonInProgress is now {curr}");
     }
 
-    private static void OnDisplayCategoryHintsChanged (bool prev, bool curr) {
-        Plugin.Console.LogInfo($"DisplayCategoryHints is now {curr}");
-    }
-
     #endregion
 }
 
 public enum Punishment {
     Random,
     Teleport,
-    Explode
+    Explode,
+    Flash
 }

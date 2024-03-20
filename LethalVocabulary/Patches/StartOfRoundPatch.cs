@@ -30,6 +30,7 @@ public class StartOfRoundPatch {
             Plugin.Console.LogError("Moon is already in progress");
             return;
         }
+
         PunishmentManager.Instance.SetMoonInProgressServerRpc(true);
     }
 }

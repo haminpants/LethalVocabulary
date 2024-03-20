@@ -29,6 +29,8 @@ public class PunishmentManager : NetworkBehaviour {
     public readonly NetworkVariable<bool> MoonInProgress = new();
     private Punishment _activePunishment;
     private bool _displayCategoryHints;
+    private Coroutine _apologyTimer;
+    public int apologyIndex = -1;
 
     public PunishmentManager () {
         Instance = this;
@@ -94,12 +96,20 @@ public class PunishmentManager : NetworkBehaviour {
         Plugin.DisplayHUDTip(header, body, isWarning);
     }
 
+    #region NetworkVariable OnValueChanged Functions
+
+    private static void OnMoonInProgressChanged (bool prev, bool curr) {
+        Plugin.Console.LogInfo($"MoonInProgress is now {curr}");
+    }
+
+    #endregion
+
     #region Punishments
 
     [ServerRpc(RequireOwnership = false)]
-    public void PunishPlayerServerRpc (ulong clientId) {
+    public void PunishPlayerServerRpc (ulong clientId, bool forceRandom = false) {
         Punishment triggerPunishment = _activePunishment;
-        if (triggerPunishment.Equals(Punishment.Random))
+        if (forceRandom || triggerPunishment.Equals(Punishment.Random))
             triggerPunishment = (Punishment)Random.RandomRangeInt(1, Enum.GetValues(typeof(Punishment)).Length);
 
         switch (triggerPunishment) {
@@ -111,6 +121,9 @@ public class PunishmentManager : NetworkBehaviour {
                 break;
             case Punishment.Flash:
                 CreateFlashAtPositionClientRpc(clientId);
+                break;
+            case Punishment.Apologize:
+                ForceApologyClientRpc(clientId);
                 break;
         }
     }
@@ -155,7 +168,7 @@ public class PunishmentManager : NetworkBehaviour {
     }
 
     #endregion
-    
+
     #region Explosion Punishment
 
     private IEnumerator DelayExplosionCoroutine (ulong clientId, int delaySeconds) {
@@ -166,7 +179,7 @@ public class PunishmentManager : NetworkBehaviour {
         CreateExplosionAtPositionServerRpc(clientId, triggerPosition);
     }
 
-    [ServerRpc]
+    [ServerRpc(RequireOwnership = false)]
     public void CreateExplosionAtPositionServerRpc (ulong clientId, Vector3 triggerPosition) {
         CreateExplosionAtPositionClientRpc(clientId, triggerPosition);
     }
@@ -188,6 +201,57 @@ public class PunishmentManager : NetworkBehaviour {
         player.movementAudio.PlayOneShot(_stunGrenade.explodeSFX);
         StunGrenadeItem.StunExplosion(player.transform.position, true, 1, 0);
         player.DamagePlayer(30, causeOfDeath: CauseOfDeath.Blast);
+    }
+
+    #endregion
+
+    #region Apology
+
+    // TODO: put these in a file and read them later, sync them with the host
+    public static readonly string[] Apologies = {
+        "I didn't mean to say that.",
+        "I was just kidding.",
+        "I lied, ignore me.",
+        "I will not say that again.",
+        "I will think before speaking.",
+        "I shouldn't have said that."
+    };
+
+    [ClientRpc]
+    public void ForceApologyClientRpc (ulong clientId) {
+        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+        if (_apologyTimer != null) {
+            // TODO: unique fallback punishment if timer already started
+            PunishPlayerServerRpc(clientId, true);
+            return;
+        }
+
+        apologyIndex = Random.RandomRangeInt(0, Apologies.Length);
+        _apologyTimer = StartCoroutine(StartApologyTimer(10));
+    }
+
+    private IEnumerator StartApologyTimer (int timerSeconds) {
+        if (apologyIndex < 0) {
+            Plugin.Console.LogWarning("An apology was not picked, defaulting to apology 0");
+            apologyIndex = 0;
+        }
+
+        Plugin.Console.LogInfo($"APOLOGY TIMER STARTED: {timerSeconds} seconds to type {Apologies[apologyIndex]}");
+        for (int i = timerSeconds; i > 0; i--) {
+            Plugin.DisplayHUDTip($"APOLOGIZE IN CHAT ({i})", $"\"{Apologies[apologyIndex]}\"", true);
+            yield return new WaitForSeconds(1);
+        }
+
+        PlayerControllerB player = StartOfRound.Instance.localPlayerController;
+        CreateExplosionAtPositionServerRpc(player.playerClientId, player.transform.position);
+    }
+
+    public void StopApologyTimer (bool showPassMessage = true) {
+        StopCoroutine(_apologyTimer);
+        _apologyTimer = null;
+        apologyIndex = -1;
+
+        if (showPassMessage) Plugin.DisplayHUDTip("Thank you for apologizing.", "");
     }
 
     #endregion
@@ -257,7 +321,7 @@ public class PunishmentManager : NetworkBehaviour {
     [ServerRpc]
     public void SetMoonInProgressServerRpc (bool moonInProgress) {
         MoonInProgress.Value = moonInProgress;
-        
+
         if (moonInProgress) {
             AddCategoryClientRpc(PickCategory(Config.SharedCategoriesPerMoon.Value));
             AddRandomCategoryClientRpc(Config.PrivateCategoriesPerMoon.Value);
@@ -432,19 +496,12 @@ public class PunishmentManager : NetworkBehaviour {
     }
 
     #endregion
-
-    #region NetworkVariable OnValueChanged Functions
-
-    private static void OnMoonInProgressChanged (bool prev, bool curr) {
-        Plugin.Console.LogInfo($"MoonInProgress is now {curr}");
-    }
-
-    #endregion
 }
 
 public enum Punishment {
     Random,
     Teleport,
     Explode,
-    Flash
+    Flash,
+    Apologize
 }

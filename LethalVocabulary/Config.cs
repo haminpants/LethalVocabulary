@@ -42,7 +42,8 @@ public class Config {
             new ConfigDescription(
                 "The punishment that will happen on the player upon talking about one of the banned categories.",
                 new AcceptableValueList<string>(Punishment.Random.ToString(), Punishment.Teleport.ToString(),
-                    Punishment.Explode.ToString(), Punishment.Flash.ToString(), Punishment.Apologize.ToString())));
+                    Punishment.Explode.ToString(), Punishment.Flash.ToString(), Punishment.Apologize.ToString(),
+                    Punishment.Suffocate.ToString())));
 
         SharedCategoriesPerMoon = cfg.Bind("Gameplay", "Shared Categories Per Moon", 1,
             new ConfigDescription(

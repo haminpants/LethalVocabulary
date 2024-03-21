@@ -20,7 +20,7 @@ public class PunishmentManager : NetworkBehaviour {
     public static PunishmentManager Instance;
     private static ShipTeleporter _teleporter;
     private static StunGrenadeItem _stunGrenade;
-    private static GameObject _landminePrefab;
+    private static GameObject _snareFleaPrefab;
 
     private readonly Dictionary<string, HashSet<string>> _categories = new();
     public readonly HashSet<string> ActiveCategories = new();
@@ -75,13 +75,18 @@ public class PunishmentManager : NetworkBehaviour {
         _stunGrenade = Resources.FindObjectsOfTypeAll<GameObject>()
             .First(o => o.GetComponent<StunGrenadeItem>()).GetComponent<StunGrenadeItem>();
 
-        // Load hazard resources
-        _landminePrefab = RoundManager.Instance.spawnableMapObjects
-            .First(o => o.prefabToSpawn.GetComponentInChildren<Landmine>() != null).prefabToSpawn;
+        // Load enemy prefabs
+        HashSet<GameObject> enemyPrefabs = new();
+        foreach (SelectableLevel level in StartOfRound.Instance.levels) {
+            enemyPrefabs.UnionWith(level.Enemies.Select(o => o.enemyType.enemyPrefab));
+            enemyPrefabs.UnionWith(level.OutsideEnemies.Select(o => o.enemyType.enemyPrefab));
+        }
+
+        _snareFleaPrefab = enemyPrefabs.First(o => o.GetComponent<CentipedeAI>() != null);
 
         if (_teleporter == null) Plugin.Console.LogError("Failed to locate Inverse Teleporter resource");
         if (_stunGrenade == null) Plugin.Console.LogError("Failed to locate Stun Grenade resource");
-        if (_landminePrefab == null) Plugin.Console.LogError("Failed to locate Landmine prefab");
+        if (_snareFleaPrefab == null) Plugin.Console.LogError("Failed to locate Snare Flea prefab");
         Plugin.Console.LogInfo("Finished loading game resources!");
     }
 
@@ -124,6 +129,9 @@ public class PunishmentManager : NetworkBehaviour {
                 break;
             case Punishment.Apologize:
                 ForceApologyClientRpc(clientId);
+                break;
+            case Punishment.Suffocate:
+                SuffocatePlayerServerRpc(clientId);
                 break;
         }
     }
@@ -221,6 +229,7 @@ public class PunishmentManager : NetworkBehaviour {
     public void ForceApologyClientRpc (ulong clientId) {
         if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
         if (_apologyTimer != null) {
+            Plugin.Console.LogWarning("Apology punishment already active, executing alternative punishment");
             // TODO: unique fallback punishment if timer already started
             PunishPlayerServerRpc(clientId, true);
             return;
@@ -238,12 +247,13 @@ public class PunishmentManager : NetworkBehaviour {
 
         Plugin.Console.LogInfo($"APOLOGY TIMER STARTED: {timerSeconds} seconds to type {Apologies[apologyIndex]}");
         for (int i = timerSeconds; i > 0; i--) {
-            Plugin.DisplayHUDTip($"APOLOGIZE IN CHAT ({i})", $"\"{Apologies[apologyIndex]}\"", true);
+            Plugin.DisplayHUDTip($"APOLOGIZE IN CHAT ({i})", $"Send \"{Apologies[apologyIndex]}\"", true);
             yield return new WaitForSeconds(1);
         }
 
         PlayerControllerB player = StartOfRound.Instance.localPlayerController;
         CreateExplosionAtPositionServerRpc(player.playerClientId, player.transform.position);
+        StopApologyTimer(false);
     }
 
     public void StopApologyTimer (bool showPassMessage = true) {
@@ -252,6 +262,47 @@ public class PunishmentManager : NetworkBehaviour {
         apologyIndex = -1;
 
         if (showPassMessage) Plugin.DisplayHUDTip("Thank you for apologizing.", "");
+        Plugin.Console.LogInfo("Apology timer has stopped!");
+    }
+
+    #endregion
+
+    #region Suffocate Punishment
+
+    [ServerRpc]
+    public void SuffocatePlayerServerRpc (ulong clientId) {
+        PlayerControllerB player = StartOfRound.Instance.allPlayerScripts[clientId];
+        if (!player.isInsideFactory) {
+            Plugin.Console.LogWarning("Player not in facility, executing alternative punishment");
+            // TODO: execute alternative punishment
+            PunishPlayerServerRpc(clientId, true);
+            return;
+        }
+
+        GameObject snareFleaObject =
+            Instantiate(_snareFleaPrefab, player.gameObject.transform.position, Quaternion.identity);
+        CentipedeAI snareFlea = snareFleaObject.GetComponent<CentipedeAI>();
+        snareFlea.GetComponent<EnemyAI>().enemyHP = 1;
+        snareFlea.GetComponent<NetworkObject>().Spawn();
+        StartCoroutine(ClingToPlayer(clientId, snareFlea));
+        StartCoroutine(KillSnareFleaOnStopClinging(snareFlea));
+    }
+
+    private static IEnumerator ClingToPlayer (ulong clientId, CentipedeAI snareFlea) {
+        while (snareFlea.agent == null) yield return null;
+        snareFlea.ClingToPlayerServerRpc(clientId);
+        yield return new WaitForSeconds(6.1f);
+        if (snareFlea.clingingToPlayer != null) snareFlea.StopClingingServerRpc(false);
+    }
+
+    private static IEnumerator KillSnareFleaOnStopClinging (CentipedeAI snareFlea) {
+        yield return new WaitForSeconds(1);
+        while (snareFlea.clingingToPlayer != null) {
+            if (snareFlea.isEnemyDead) yield break;
+            yield return null;
+        }
+
+        snareFlea.KillEnemyOnOwnerClient();
     }
 
     #endregion
@@ -503,5 +554,6 @@ public enum Punishment {
     Teleport,
     Explode,
     Flash,
-    Apologize
+    Apologize,
+    Suffocate
 }

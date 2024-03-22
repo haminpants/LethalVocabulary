@@ -8,6 +8,7 @@ public class Config {
     public static ConfigEntry<int> SharedCategoriesPerMoon;
     public static ConfigEntry<int> PrivateCategoriesPerMoon;
     public static ConfigEntry<bool> DisplayCategoryHints;
+    public static ConfigEntry<bool> PunishCurseWords;
     public static ConfigEntry<double> ConfidenceThreshold;
     public static ConfigEntry<bool> LogRecognitionOutput;
 
@@ -28,6 +29,8 @@ public class Config {
     public static ConfigEntry<string> SnareFleaWords;
     public static ConfigEntry<string> SporeLizardWords;
     public static ConfigEntry<string> ThumperWords;
+
+    public static ConfigEntry<string> CurseWords;
 
     private readonly string CustomWordTip =
         "The following words will trigger a punishment when this category is selected.\n" +
@@ -60,6 +63,11 @@ public class Config {
         DisplayCategoryHints = cfg.Bind("Gameplay", "Display Category Hints", true,
             new ConfigDescription(
                 "Determines whether or not to display a HUD tip telling players what the shared categories are.",
+                new AcceptableValueList<bool>(true, false)));
+
+        PunishCurseWords = cfg.Bind("Gameplay", "Punish Curse Words", false,
+            new ConfigDescription(
+                "Determines whether or not players will be punished for swearing. Uses \"Curse Words\" category.",
                 new AcceptableValueList<bool>(true, false)));
 
         ConfidenceThreshold = cfg.Bind("Gameplay", "Confidence Threshold", 0.9,
@@ -126,6 +134,9 @@ public class Config {
         ThumperWords = cfg.Bind("Categories.Entities", "Thumper",
             "thumper,crawler",
             CustomWordTip);
+
+        CurseWords = cfg.Bind("Categories.Other", "Curse Words",
+            "fuck,fucking,shit,shitting,bitch,bitching");
 
         #endregion
     }

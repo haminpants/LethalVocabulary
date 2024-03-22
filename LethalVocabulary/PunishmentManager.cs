@@ -18,6 +18,7 @@ public class PunishmentManager : NetworkBehaviour {
     public const int WordMaxLength = 128;
 
     public static PunishmentManager Instance;
+    private static PlayerControllerB _localPlayer;
     private static ShipTeleporter _teleporter;
     private static StunGrenadeItem _stunGrenade;
     private static GameObject _snareFleaPrefab;
@@ -25,12 +26,16 @@ public class PunishmentManager : NetworkBehaviour {
     private readonly Dictionary<string, HashSet<string>> _categories = new();
     public readonly HashSet<string> ActiveCategories = new();
     public readonly HashSet<string> ActiveWords = new();
-
-    public readonly NetworkVariable<bool> MoonInProgress = new();
-    private Punishment _activePunishment;
-    private bool _displayCategoryHints;
     private Coroutine _apologyTimer;
     public int apologyIndex = -1;
+
+    // Game Settings
+    public readonly NetworkVariable<bool> MoonInProgress = new();
+    public Punishment activePunishment;
+    public int sharedCategoriesPerMoon;
+    public int privateCategoriesPerMoon;
+    public bool displayCategoryHints;
+    public bool punishCurseWords;
 
     public PunishmentManager () {
         Instance = this;
@@ -39,13 +44,13 @@ public class PunishmentManager : NetworkBehaviour {
 
     public bool StringIsLegal (string message, double confidence = 1) {
         message = message.Trim().ToLower();
-        PlayerControllerB player = StartOfRound.Instance.localPlayerController;
 
-        if (!MoonInProgress.Value || player.isPlayerDead || confidence < Config.ConfidenceThreshold.Value) return true;
+        if (!MoonInProgress.Value || _localPlayer.isPlayerDead || confidence < Config.ConfidenceThreshold.Value)
+            return true;
 
         foreach (string word in ActiveWords) {
             if (!message.Contains(word)) continue;
-            PunishPlayerServerRpc(player.playerClientId);
+            PunishPlayerServerRpc(_localPlayer.playerClientId);
             return false;
         }
 
@@ -62,12 +67,16 @@ public class PunishmentManager : NetworkBehaviour {
 
         SetPunishmentFromName(Config.ActivePunishment.Value);
 
-        _displayCategoryHints = Config.DisplayCategoryHints.Value;
-        // TODO: make sure config loads?
+        sharedCategoriesPerMoon = Config.SharedCategoriesPerMoon.Value;
+        privateCategoriesPerMoon = Config.PrivateCategoriesPerMoon.Value;
+        punishCurseWords = Config.PunishCurseWords.Value;
+
+        displayCategoryHints = Config.DisplayCategoryHints.Value;
     }
 
     public void LoadGameResources () {
         Plugin.Console.LogInfo("Loading game resources...");
+        _localPlayer = StartOfRound.Instance.localPlayerController;
 
         // Load object resources
         _teleporter = Resources.FindObjectsOfTypeAll<GameObject>()
@@ -97,7 +106,7 @@ public class PunishmentManager : NetworkBehaviour {
 
     [ClientRpc]
     public void DisplayHUDTipClientRpc (string header, string body, bool isWarning, ulong clientId) {
-        if (clientId != 9999 && StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+        if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
         Plugin.DisplayHUDTip(header, body, isWarning);
     }
 
@@ -113,7 +122,7 @@ public class PunishmentManager : NetworkBehaviour {
 
     [ServerRpc(RequireOwnership = false)]
     public void PunishPlayerServerRpc (ulong clientId, bool forceRandom = false) {
-        Punishment triggerPunishment = _activePunishment;
+        Punishment triggerPunishment = activePunishment;
         if (forceRandom || triggerPunishment.Equals(Punishment.Random))
             triggerPunishment = (Punishment)Random.RandomRangeInt(1, Enum.GetValues(typeof(Punishment)).Length);
 
@@ -141,7 +150,7 @@ public class PunishmentManager : NetworkBehaviour {
     [ClientRpc]
     public void TeleportPunishmentClientRpc (ulong clientId) {
         PlayerControllerB player = StartOfRound.Instance.allPlayerScripts[clientId];
-        if (StartOfRound.Instance.localPlayerController.playerClientId == clientId) {
+        if (_localPlayer.playerClientId == clientId) {
             GameObject[] insideAINodes = RoundManager.Instance.insideAINodes;
             Vector3 teleportPos = insideAINodes[Random.RandomRangeInt(0, insideAINodes.Length)].transform.position;
             teleportPos = RoundManager.Instance.GetRandomNavMeshPositionInRadiusSpherical(teleportPos);
@@ -194,8 +203,7 @@ public class PunishmentManager : NetworkBehaviour {
 
     [ClientRpc]
     public void CreateExplosionAtPositionClientRpc (ulong clientId, Vector3 triggerPosition) {
-        PlayerControllerB player = StartOfRound.Instance.localPlayerController;
-        Landmine.SpawnExplosion(triggerPosition, true, player.playerClientId == clientId ? 4f : 0, 0);
+        Landmine.SpawnExplosion(triggerPosition, true, _localPlayer.playerClientId == clientId ? 4f : 0, 0);
     }
 
     #endregion
@@ -203,12 +211,11 @@ public class PunishmentManager : NetworkBehaviour {
     #region Flash Punishment
 
     [ClientRpc]
-    public void CreateFlashAtPositionClientRpc (ulong clientId = 9999) {
-        PlayerControllerB player = StartOfRound.Instance.localPlayerController;
-        if (clientId != 9999 && player.playerClientId != clientId) return;
-        player.movementAudio.PlayOneShot(_stunGrenade.explodeSFX);
-        StunGrenadeItem.StunExplosion(player.transform.position, true, 1, 0);
-        player.DamagePlayer(30, causeOfDeath: CauseOfDeath.Blast);
+    public void CreateFlashAtPositionClientRpc (ulong clientId) {
+        if (_localPlayer.playerClientId != clientId) return;
+        _localPlayer.movementAudio.PlayOneShot(_stunGrenade.explodeSFX);
+        StunGrenadeItem.StunExplosion(_localPlayer.transform.position, true, 1, 0);
+        _localPlayer.DamagePlayer(30, causeOfDeath: CauseOfDeath.Blast);
     }
 
     #endregion
@@ -227,10 +234,9 @@ public class PunishmentManager : NetworkBehaviour {
 
     [ClientRpc]
     public void ForceApologyClientRpc (ulong clientId) {
-        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+        if (_localPlayer.playerClientId != clientId) return;
         if (_apologyTimer != null) {
             Plugin.Console.LogWarning("Apology punishment already active, executing alternative punishment");
-            // TODO: unique fallback punishment if timer already started
             PunishPlayerServerRpc(clientId, true);
             return;
         }
@@ -251,8 +257,7 @@ public class PunishmentManager : NetworkBehaviour {
             yield return new WaitForSeconds(1);
         }
 
-        PlayerControllerB player = StartOfRound.Instance.localPlayerController;
-        CreateExplosionAtPositionServerRpc(player.playerClientId, player.transform.position);
+        CreateExplosionAtPositionServerRpc(_localPlayer.playerClientId, _localPlayer.transform.position);
         StopApologyTimer(false);
     }
 
@@ -274,7 +279,7 @@ public class PunishmentManager : NetworkBehaviour {
         PlayerControllerB player = StartOfRound.Instance.allPlayerScripts[clientId];
         if (!player.isInsideFactory) {
             Plugin.Console.LogWarning("Player not in facility, executing alternative punishment");
-            // TODO: execute alternative punishment
+            // TODO: execute alternative punishment, pink smoke from lizard and muffle?
             PunishPlayerServerRpc(clientId, true);
             return;
         }
@@ -310,11 +315,11 @@ public class PunishmentManager : NetworkBehaviour {
     private void SetPunishmentFromName (string punishmentName) {
         if (Enum.TryParse(punishmentName, out Punishment punishment)) {
             Plugin.Console.LogInfo($"Set active punishment to {punishment.ToString()}");
-            _activePunishment = punishment;
+            activePunishment = punishment;
         }
         else {
             Plugin.Console.LogWarning($"Punishment \"{punishmentName}\" does not exist, set punishment to random");
-            _activePunishment = Punishment.Random;
+            activePunishment = Punishment.Random;
         }
     }
 
@@ -324,46 +329,119 @@ public class PunishmentManager : NetworkBehaviour {
 
     [ServerRpc(RequireOwnership = false)]
     public void RequestSettingsServerRpc (ulong clientId) {
-        PlayerControllerB host = StartOfRound.Instance.localPlayerController;
-        PlayerControllerB client = StartOfRound.Instance.allPlayerScripts[clientId];
-        Plugin.Console.LogInfo($"Received settings request from {client.playerUsername}, attempting to sync settings");
+        string clientName = StartOfRound.Instance.allPlayerScripts[clientId].playerUsername;
+        Plugin.Console.LogInfo($"Received settings request from {clientName}, attempting to sync settings");
 
-        SyncCategoriesClientRpc(host.playerClientId, client.playerClientId,
+        SyncCategoriesClientRpc(_localPlayer.playerClientId,
             _categories.Keys.Select(s => new FixedString64Bytes(s)).ToArray(),
-            _categories.Values.Select(s => new FixedString512Bytes(string.Join(",", s))).ToArray());
-        SyncActivePunishmentClientRpc(host.playerClientId, clientId,
-            new FixedString64Bytes(_activePunishment.ToString()));
-        SyncDisplayCategoryHintsClientRpc(host.playerClientId, clientId, _displayCategoryHints);
+            _categories.Values.Select(s => new FixedString512Bytes(string.Join(",", s))).ToArray(),
+            clientId);
+
+        SyncActivePunishmentClientRpc(_localPlayer.playerClientId,
+            new FixedString64Bytes(activePunishment.ToString()), clientId);
+
+        SyncCategoriesPerMoonClientRpc(_localPlayer.playerClientId,
+            sharedCategoriesPerMoon, privateCategoriesPerMoon, clientId);
+
+        SyncDisplayCategoryHintsClientRpc(_localPlayer.playerClientId,
+            displayCategoryHints, clientId);
+
+        SyncPunishCurseWordsClientRpc(_localPlayer.playerClientId,
+            punishCurseWords, clientId);
     }
 
+    #region Category Sync Functions
+
     [ClientRpc]
-    public void SyncCategoriesClientRpc (ulong senderId, ulong clientId, FixedString64Bytes[] catNames,
-        FixedString512Bytes[] catWords) {
-        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+    public void SyncCategoriesClientRpc (ulong senderId, FixedString64Bytes[] categoryNames,
+        FixedString512Bytes[] categoryWords, ulong clientId = 9999) {
+        if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
+        if (_localPlayer.IsHost) return;
         PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
-        _categories.Clear();
 
-        Plugin.Console.LogInfo($"Received {catNames.Length} categories from {sender.playerUsername}!");
-        for (int i = 0; i < catNames.Length; i++) AddCategory(catNames[i].Value, catWords[i].Value);
+        _categories.Clear();
+        Plugin.Console.LogInfo($"Received {categoryNames.Length} categories from {sender.playerUsername}!");
+        for (int i = 0; i < categoryNames.Length; i++) AddCategory(categoryNames[i].Value, categoryWords[i].Value);
+    }
+
+    #endregion
+
+    #region Active Punishment Sync Functions
+
+    [ServerRpc]
+    public void SetActivePunishmentServerRpc (FixedString64Bytes punishmentName) {
+        SyncActivePunishmentClientRpc(_localPlayer.playerClientId, punishmentName);
     }
 
     [ClientRpc]
-    public void SyncActivePunishmentClientRpc (ulong senderId, ulong clientId, FixedString64Bytes punishmentName) {
-        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+    public void SyncActivePunishmentClientRpc (ulong senderId, FixedString64Bytes punishmentName,
+        ulong clientId = 9999) {
+        if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
         PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
 
         Plugin.Console.LogInfo($"Received \"{punishmentName}\" from {sender.playerUsername}");
         SetPunishmentFromName(punishmentName.Value);
     }
 
+    #endregion
+
+    #region Categories Per Moon Sync Functions
+
+    [ServerRpc]
+    public void SetCategoriesPerMoonServerRpc (int shared = -1, int @private = -1) {
+        shared = shared >= 0 ? shared : sharedCategoriesPerMoon;
+        @private = @private >= 0 ? @private : privateCategoriesPerMoon;
+        SyncCategoriesPerMoonClientRpc(_localPlayer.playerClientId, shared, @private);
+    }
+
     [ClientRpc]
-    public void SyncDisplayCategoryHintsClientRpc (ulong senderId, ulong clientId, bool displayCategoryHints) {
-        if (StartOfRound.Instance.localPlayerController.playerClientId != clientId) return;
+    public void SyncCategoriesPerMoonClientRpc (ulong senderId, int shared, int @private, ulong clientId = 9999) {
+        if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
+        PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
+
+        Plugin.Console.LogInfo($"Received SharedCategoriesPerMoon={shared} and PrivateCategoriesPerMoon={@private} " +
+                               $"from {sender.playerUsername}");
+        sharedCategoriesPerMoon = shared;
+        privateCategoriesPerMoon = @private;
+    }
+
+    #endregion
+
+    #region Display Categories Hints Sync Functions
+
+    [ServerRpc]
+    public void SetDisplayCategoryHintsServerRpc (bool displayCategoryHints) {
+        SyncDisplayCategoryHintsClientRpc(_localPlayer.playerClientId, displayCategoryHints);
+    }
+
+    [ClientRpc]
+    public void SyncDisplayCategoryHintsClientRpc (ulong senderId, bool displayCategoryHints, ulong clientId = 9999) {
+        if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
         PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
 
         Plugin.Console.LogInfo($"Received DisplayCategoryHints={displayCategoryHints} from {sender.playerUsername}");
-        _displayCategoryHints = displayCategoryHints;
+        this.displayCategoryHints = displayCategoryHints;
     }
+
+    #endregion
+
+    #region Punish Curse Words Sync Functions
+
+    [ServerRpc]
+    public void SetPunishCurseWordsServerRpc (bool punishCurseWords) {
+        SyncPunishCurseWordsClientRpc(_localPlayer.playerClientId, punishCurseWords);
+    }
+
+    [ClientRpc]
+    public void SyncPunishCurseWordsClientRpc (ulong senderId, bool punishCurseWords, ulong clientId = 9999) {
+        if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
+        PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
+
+        Plugin.Console.LogInfo($"Received PunishCurseWords={punishCurseWords} from {sender.playerUsername}");
+        this.punishCurseWords = punishCurseWords;
+    }
+
+    #endregion
 
     #endregion
 
@@ -374,8 +452,8 @@ public class PunishmentManager : NetworkBehaviour {
         MoonInProgress.Value = moonInProgress;
 
         if (moonInProgress) {
-            AddCategoryClientRpc(PickCategory(Config.SharedCategoriesPerMoon.Value));
-            AddRandomCategoryClientRpc(Config.PrivateCategoriesPerMoon.Value);
+            AddCategoryClientRpc(PickCategory(sharedCategoriesPerMoon));
+            AddRandomCategoryClientRpc(privateCategoriesPerMoon);
             StartSpeechRecognitionClientRpc();
             DisplayCategoryHintsClientRpc();
         }
@@ -420,7 +498,7 @@ public class PunishmentManager : NetworkBehaviour {
 
     [ClientRpc]
     public void DisplayCategoryHintsClientRpc () {
-        if (!_displayCategoryHints) return;
+        if (!displayCategoryHints) return;
         string hintsMessage = string.Join(", ", ActiveCategories);
         if (hintsMessage.Length == 0) return;
         Plugin.DisplayHUDTip("Don't talk about...", hintsMessage);
@@ -446,6 +524,8 @@ public class PunishmentManager : NetworkBehaviour {
             selectedCategories.Add(category);
         }
 
+        if (!ActiveCategories.Contains(GetCategoryName(Category.CurseWords)))
+            selectedCategories.Add(GetCategoryName(Category.CurseWords));
         return selectedCategories.Select(categoryName => new FixedString64Bytes(categoryName)).ToArray();
     }
 

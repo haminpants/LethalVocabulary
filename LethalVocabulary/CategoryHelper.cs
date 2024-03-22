@@ -18,7 +18,8 @@ public enum Category {
     Nutcracker,
     SnareFlea,
     SporeLizard,
-    Thumper
+    Thumper,
+    CurseWords
 }
 
 public static class CategoryHelper {
@@ -57,7 +58,8 @@ public static class CategoryHelper {
         { Category.Nutcracker, Config.NutcrackerWords.Value },
         { Category.SnareFlea, Config.SnareFleaWords.Value },
         { Category.SporeLizard, Config.SporeLizardWords.Value },
-        { Category.Thumper, Config.ThumperWords.Value }
+        { Category.Thumper, Config.ThumperWords.Value },
+        { Category.CurseWords, Config.CurseWords.Value }
     };
 
     public static readonly Dictionary<Category, string> SpacedCategoryNames = new() {
@@ -70,6 +72,7 @@ public static class CategoryHelper {
         { Category.GhostGirl, "Ghost Girl" },
         { Category.HoardingBug, "Hoarding Bug" },
         { Category.SnareFlea, "Snare Flea" },
-        { Category.SporeLizard, "Spore Lizard" }
+        { Category.SporeLizard, "Spore Lizard" },
+        { Category.CurseWords, "Curse Words" }
     };
 }

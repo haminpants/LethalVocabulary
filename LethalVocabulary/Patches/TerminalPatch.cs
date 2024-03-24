@@ -95,16 +95,22 @@ public class TerminalPatch {
                     case "1":
                         return CreatePunishmentNode();
                     case "2":
-                        PunishmentManager.Instance.SetDisplayCategoryHintsServerRpc(
-                            !PunishmentManager.Instance.displayCategoryHints);
-                        return CreateHomeNode();
-                    case "3":
                         return CreateCategoriesPerMoonNode(true);
-                    case "4":
+                    case "3":
                         return CreateCategoriesPerMoonNode(false);
+                    case "4":
+                        PunishmentManager.Instance.SetCategoryHintsServerRpc(
+                            !PunishmentManager.Instance.sharedCategoryHints,
+                            PunishmentManager.Instance.privateCategoryHints);
+                        return CreateHomeNode();
                     case "5":
-                        PunishmentManager.Instance.SetPunishCurseWordsServerRpc(
-                            !PunishmentManager.Instance.punishCurseWords);
+                        PunishmentManager.Instance.SetCategoryHintsServerRpc(
+                            PunishmentManager.Instance.sharedCategoryHints,
+                            !PunishmentManager.Instance.privateCategoryHints);
+                        return CreateHomeNode();
+                    case "6":
+                        PunishmentManager.Instance.SetForcedCategoryStatusServerRpc(
+                            Category.CurseWords, !PunishmentManager.Instance.IsPunishCurseWords());
                         return CreateHomeNode();
                 }
 
@@ -137,10 +143,11 @@ public class TerminalPatch {
             (!StartOfRound.Instance.localPlayerController.IsHost ? "Only the host can change settings.\n" : "") +
             (PunishmentManager.Instance.MoonInProgress.Value ? "Settings cannot be changed mid-moon.\n" : "") + "\n" +
             $"(1) Punishment: {PunishmentManager.Instance.activePunishment.ToString()}\n" +
-            $"(2) Display Category Hints: {PunishmentManager.Instance.displayCategoryHints}\n" +
-            $"(3) Shared Categories Per Moon: {PunishmentManager.Instance.sharedCategoriesPerMoon}\n" +
-            $"(4) Private Categories Per Moon: {PunishmentManager.Instance.privateCategoriesPerMoon}\n" +
-            $"(5) Punish Curse Words: {PunishmentManager.Instance.punishCurseWords}\n\n" +
+            $"(2) Shared Categories Per Moon: {PunishmentManager.Instance.sharedCategoriesPerMoon}\n" +
+            $"(3) Private Categories Per Moon: {PunishmentManager.Instance.privateCategoriesPerMoon}\n" +
+            $"(4) Shared Category Hints: {PunishmentManager.Instance.sharedCategoryHints}\n" +
+            $"(5) Private Category Hints: {PunishmentManager.Instance.privateCategoryHints}\n" +
+            $"(6) Punish Curse Words: {PunishmentManager.Instance.IsPunishCurseWords()}\n\n" +
             "Changes are NOT saved to your config.\n" +
             "Enter the setting number to edit.\n";
 

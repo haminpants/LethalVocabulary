@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Speech.Recognition;
 using System.Speech.Recognition.SrgsGrammar;
 
@@ -29,11 +30,11 @@ public class SpeechRecognizer {
         Plugin.Console.LogInfo("Created speech recognizer successfully. On standby until you land on a moon!");
     }
 
-    public void StartRecognizer (bool updateGrammar = true) {
+    public void StartRecognizer (HashSet<string> triggerWords, bool updateGrammar = true) {
         try {
             if (updateGrammar) {
                 if (_recognizer.Grammars.Contains(_activeGrammar)) _recognizer.UnloadGrammar(_activeGrammar);
-                _activeGrammar = CreateCategoryGrammar();
+                _activeGrammar = CreateCategoryGrammar(triggerWords);
                 _recognizer.LoadGrammar(_activeGrammar);
             }
 
@@ -64,11 +65,11 @@ public class SpeechRecognizer {
         }
     }
 
-    private Grammar CreateCategoryGrammar () {
+    private static Grammar CreateCategoryGrammar (HashSet<string> words) {
         SrgsRule rule = new("PunishmentRule");
         SrgsOneOf triggerWords = new("word");
 
-        foreach (string word in PunishmentManager.Instance.ActiveWords) triggerWords.Add(new SrgsItem(word));
+        foreach (string word in words) triggerWords.Add(new SrgsItem(word));
 
         rule.Add(new SrgsItem(1, 1, SrgsRuleRef.Dictation));
         rule.Add(new SrgsItem(1, 1, triggerWords));

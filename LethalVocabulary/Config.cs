@@ -7,7 +7,8 @@ public class Config {
     public static ConfigEntry<string> ActivePunishment;
     public static ConfigEntry<int> SharedCategoriesPerMoon;
     public static ConfigEntry<int> PrivateCategoriesPerMoon;
-    public static ConfigEntry<bool> DisplayCategoryHints;
+    public static ConfigEntry<bool> SharedCategoryHints;
+    public static ConfigEntry<bool> PrivateCategoryHints;
     public static ConfigEntry<bool> PunishCurseWords;
     public static ConfigEntry<double> ConfidenceThreshold;
     public static ConfigEntry<bool> LogRecognitionOutput;
@@ -60,9 +61,14 @@ public class Config {
                 "Set this value to 0 to disable private categories.",
                 new AcceptableValueRange<int>(0, 20)));
 
-        DisplayCategoryHints = cfg.Bind("Gameplay", "Display Category Hints", true,
+        SharedCategoryHints = cfg.Bind("Gameplay", "Shared Category Hints", true,
             new ConfigDescription(
-                "Determines whether or not to display a HUD tip telling players what the shared categories are.",
+                "Determines if the selected Shared Categories will be displayed at the start of each moon.",
+                new AcceptableValueList<bool>(true, false)));
+
+        PrivateCategoryHints = cfg.Bind("Gameplay", "Private Category Hints", true,
+            new ConfigDescription(
+                "Determines if the selected Private Categories will be displayed at the start of each moon.",
                 new AcceptableValueList<bool>(true, false)));
 
         PunishCurseWords = cfg.Bind("Gameplay", "Punish Curse Words", false,

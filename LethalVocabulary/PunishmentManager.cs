@@ -13,29 +13,36 @@ using Random = UnityEngine.Random;
 namespace LethalVocabulary;
 
 public class PunishmentManager : NetworkBehaviour {
+    public static PunishmentManager Instance;
     public const int CategoryNameMaxLength = 64;
     public const int CategoryWordsMaxLength = 512;
     public const int WordMaxLength = 128;
 
-    public static PunishmentManager Instance;
+
+    // Quick Access Resources 
     private static PlayerControllerB _localPlayer;
     private static ShipTeleporter _teleporter;
     private static StunGrenadeItem _stunGrenade;
     private static GameObject _snareFleaPrefab;
 
-    private readonly Dictionary<string, HashSet<string>> _categories = new();
-    public readonly HashSet<string> ActiveCategories = new();
-    public readonly HashSet<string> ActiveWords = new();
-    private Coroutine _apologyTimer;
-    public int apologyIndex = -1;
+    // Category Variables
+    public readonly Dictionary<string, HashSet<string>> Categories = new();
+    private readonly HashSet<string> _sharedCategories = new();
+    private readonly HashSet<string> _privateCategories = new();
+    private readonly HashSet<string> _categoryWords = new();
 
     // Game Settings
     public readonly NetworkVariable<bool> MoonInProgress = new();
     public Punishment activePunishment;
     public int sharedCategoriesPerMoon;
     public int privateCategoriesPerMoon;
-    public bool displayCategoryHints;
-    public bool punishCurseWords;
+    public bool sharedCategoryHints;
+    public bool privateCategoryHints;
+    private readonly HashSet<string> _forcedCategories = new();
+
+    // Punishment Variables
+    private Coroutine _apologyTimer;
+    public int apologyIndex = -1;
 
     public PunishmentManager () {
         Instance = this;
@@ -48,17 +55,14 @@ public class PunishmentManager : NetworkBehaviour {
         if (!MoonInProgress.Value || _localPlayer.isPlayerDead || confidence < Config.ConfidenceThreshold.Value)
             return true;
 
-        foreach (string word in ActiveWords) {
-            if (!message.Contains(word)) continue;
-            PunishPlayerServerRpc(_localPlayer.playerClientId);
-            return false;
-        }
+        if (!_categoryWords.Any(word => message.Contains(word))) return true;
+        PunishPlayerServerRpc(_localPlayer.playerClientId);
+        return false;
 
-        return true;
     }
 
     public void LoadConfig (bool unloadPreviousData = true) {
-        if (unloadPreviousData) _categories.Clear();
+        if (unloadPreviousData) Categories.Clear();
 
         foreach (KeyValuePair<Category, string> entry in CategoryHelper.CategoryToConfigWords)
             AddCategory(entry.Key, entry.Value);
@@ -69,9 +73,9 @@ public class PunishmentManager : NetworkBehaviour {
 
         sharedCategoriesPerMoon = Config.SharedCategoriesPerMoon.Value;
         privateCategoriesPerMoon = Config.PrivateCategoriesPerMoon.Value;
-        punishCurseWords = Config.PunishCurseWords.Value;
-
-        displayCategoryHints = Config.DisplayCategoryHints.Value;
+        sharedCategoryHints = Config.SharedCategoryHints.Value;
+        privateCategoryHints = Config.PrivateCategoryHints.Value;
+        if (Config.PunishCurseWords.Value) _forcedCategories.Add(GetCategoryName(Category.CurseWords));
     }
 
     public void LoadGameResources () {
@@ -220,7 +224,7 @@ public class PunishmentManager : NetworkBehaviour {
 
     #endregion
 
-    #region Apology
+    #region Apology Punishment
 
     // TODO: put these in a file and read them later, sync them with the host
     public static readonly string[] Apologies = {
@@ -333,8 +337,8 @@ public class PunishmentManager : NetworkBehaviour {
         Plugin.Console.LogInfo($"Received settings request from {clientName}, attempting to sync settings");
 
         SyncCategoriesClientRpc(_localPlayer.playerClientId,
-            _categories.Keys.Select(s => new FixedString64Bytes(s)).ToArray(),
-            _categories.Values.Select(s => new FixedString512Bytes(string.Join(",", s))).ToArray(),
+            Categories.Keys.Select(s => new FixedString64Bytes(s)).ToArray(),
+            Categories.Values.Select(s => new FixedString512Bytes(string.Join(",", s))).ToArray(),
             clientId);
 
         SyncActivePunishmentClientRpc(_localPlayer.playerClientId,
@@ -344,10 +348,10 @@ public class PunishmentManager : NetworkBehaviour {
             sharedCategoriesPerMoon, privateCategoriesPerMoon, clientId);
 
         SyncDisplayCategoryHintsClientRpc(_localPlayer.playerClientId,
-            displayCategoryHints, clientId);
+            sharedCategoryHints, privateCategoryHints, clientId);
 
-        SyncPunishCurseWordsClientRpc(_localPlayer.playerClientId,
-            punishCurseWords, clientId);
+        SyncForcedCategoriesClientRpc(_localPlayer.playerClientId,
+            _forcedCategories.Select(c => new FixedString64Bytes(c)).ToArray(), clientId);
     }
 
     #region Category Sync Functions
@@ -359,7 +363,7 @@ public class PunishmentManager : NetworkBehaviour {
         if (_localPlayer.IsHost) return;
         PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
 
-        _categories.Clear();
+        Categories.Clear();
         Plugin.Console.LogInfo($"Received {categoryNames.Length} categories from {sender.playerUsername}!");
         for (int i = 0; i < categoryNames.Length; i++) AddCategory(categoryNames[i].Value, categoryWords[i].Value);
     }
@@ -410,35 +414,64 @@ public class PunishmentManager : NetworkBehaviour {
     #region Display Categories Hints Sync Functions
 
     [ServerRpc]
-    public void SetDisplayCategoryHintsServerRpc (bool displayCategoryHints) {
-        SyncDisplayCategoryHintsClientRpc(_localPlayer.playerClientId, displayCategoryHints);
+    public void SetCategoryHintsServerRpc (bool sharedCategoryHints, bool privateCategoryHints) {
+        SyncDisplayCategoryHintsClientRpc(_localPlayer.playerClientId, sharedCategoryHints, privateCategoryHints);
     }
 
     [ClientRpc]
-    public void SyncDisplayCategoryHintsClientRpc (ulong senderId, bool displayCategoryHints, ulong clientId = 9999) {
+    public void SyncDisplayCategoryHintsClientRpc (ulong senderId, bool sharedCategoryHints, bool privateCategoryHints,
+        ulong clientId = 9999) {
         if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
         PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
 
-        Plugin.Console.LogInfo($"Received DisplayCategoryHints={displayCategoryHints} from {sender.playerUsername}");
-        this.displayCategoryHints = displayCategoryHints;
+        Plugin.Console.LogInfo($"Received SharedCategoryHints={sharedCategoryHints} and " +
+                               $"PrivateCategoryHints={privateCategoryHints} from {sender.playerUsername}");
+        this.sharedCategoryHints = sharedCategoryHints;
+        this.privateCategoryHints = privateCategoryHints;
     }
 
     #endregion
 
-    #region Punish Curse Words Sync Functions
+    #region Forced Categories Sync Functions
 
     [ServerRpc]
-    public void SetPunishCurseWordsServerRpc (bool punishCurseWords) {
-        SyncPunishCurseWordsClientRpc(_localPlayer.playerClientId, punishCurseWords);
+    public void SetForcedCategoryStatusServerRpc (Category category, bool setForced) {
+        string categoryName = GetCategoryName(category);
+        if (setForced) {
+            if (_forcedCategories.Add(categoryName)) {
+                Plugin.Console.LogInfo($"Added {categoryName} to Forced Categories");
+            }
+            else {
+                Plugin.Console.LogWarning($"{categoryName} is already in the list of Forced Categories!");
+                return;
+            }
+        }
+        else {
+            if (_forcedCategories.Remove(categoryName)) {
+                Plugin.Console.LogInfo($"Removed {categoryName} from Forced Categories");
+            }
+            else {
+                Plugin.Console.LogWarning($"{categoryName} is not in the list of Forced Categories ");
+                return;
+            }
+        }
+
+        SyncForcedCategoriesClientRpc(_localPlayer.playerClientId,
+            _forcedCategories.Select(c => new FixedString64Bytes(c)).ToArray());
     }
 
     [ClientRpc]
-    public void SyncPunishCurseWordsClientRpc (ulong senderId, bool punishCurseWords, ulong clientId = 9999) {
+    public void SyncForcedCategoriesClientRpc (ulong senderId, FixedString64Bytes[] forcedCategories,
+        ulong clientId = 9999) {
         if (clientId != 9999 && _localPlayer.playerClientId != clientId) return;
+        if (_localPlayer.IsHost) return;
         PlayerControllerB sender = StartOfRound.Instance.allPlayerScripts[senderId];
 
-        Plugin.Console.LogInfo($"Received PunishCurseWords={punishCurseWords} from {sender.playerUsername}");
-        this.punishCurseWords = punishCurseWords;
+        string[] categories = forcedCategories.Select(c => c.Value).ToArray();
+        Plugin.Console.LogInfo($"Received ForcedCategories={string.Join(",", categories)} " +
+                               $"from {sender.playerUsername}");
+        _forcedCategories.Clear();
+        _forcedCategories.UnionWith(categories);
     }
 
     #endregion
@@ -452,8 +485,10 @@ public class PunishmentManager : NetworkBehaviour {
         MoonInProgress.Value = moonInProgress;
 
         if (moonInProgress) {
-            AddCategoryClientRpc(PickCategory(sharedCategoriesPerMoon));
-            AddRandomCategoryClientRpc(privateCategoriesPerMoon);
+            AddSharedCategoriesClientRpc(PickCategory(sharedCategoriesPerMoon));
+            AddPrivateCategoriesClientRpc(privateCategoriesPerMoon);
+            UpdateCategoryWordsClientRpc();
+
             StartSpeechRecognitionClientRpc();
             DisplayCategoryHintsClientRpc();
         }
@@ -464,31 +499,43 @@ public class PunishmentManager : NetworkBehaviour {
     }
 
     [ClientRpc]
-    public void AddCategoryClientRpc (FixedString64Bytes[] sharedCategories) {
-        foreach (FixedString64Bytes categoryName in sharedCategories) {
-            ActiveCategories.Add(categoryName.ToString());
-            ActiveWords.UnionWith(_categories[categoryName.ToString()]);
-            Plugin.Console.LogInfo($"Added {categoryName.Value} ({_categories[categoryName.ToString()]})");
+    public void AddSharedCategoriesClientRpc (FixedString64Bytes[] sharedCategories) {
+        foreach (FixedString64Bytes category in sharedCategories) {
+            _sharedCategories.Add(category.Value);
+            Plugin.Console.LogInfo($"Added Shared Category: {category.Value} - " +
+                                   $"\"{string.Join(", ", Categories[category.Value])}\"");
         }
-
-        LogActiveCategories();
     }
 
     [ClientRpc]
-    public void AddRandomCategoryClientRpc (int amount) {
-        AddCategoryClientRpc(PickCategory(amount));
+    public void AddPrivateCategoriesClientRpc (int amount) {
+        foreach (FixedString64Bytes category in PickCategory(amount)) {
+            _privateCategories.Add(category.Value);
+            Plugin.Console.LogInfo($"Added Private Category: {category.Value} - " +
+                                   $"\"{string.Join(", ", Categories[category.Value])}\"");
+        }
+    }
+
+    [ClientRpc]
+    public void UpdateCategoryWordsClientRpc () {
+        _categoryWords.Clear();
+        foreach (string category in _forcedCategories) _categoryWords.UnionWith(Categories[category]);
+        foreach (string category in _sharedCategories) _categoryWords.UnionWith(Categories[category]);
+        foreach (string category in _privateCategories) _categoryWords.UnionWith(Categories[category]);
+        LogCategories();
     }
 
     [ClientRpc]
     public void DeactivateAllCategoriesClientRpc () {
-        ActiveCategories.Clear();
-        ActiveWords.Clear();
-        LogActiveCategories();
+        _sharedCategories.Clear();
+        _privateCategories.Clear();
+        _categoryWords.Clear();
+        LogCategories();
     }
 
     [ClientRpc]
     public void StartSpeechRecognitionClientRpc () {
-        Plugin.Instance.SpeechRecognizer.StartRecognizer();
+        Plugin.Instance.SpeechRecognizer.StartRecognizer(_categoryWords);
     }
 
     [ClientRpc]
@@ -498,8 +545,12 @@ public class PunishmentManager : NetworkBehaviour {
 
     [ClientRpc]
     public void DisplayCategoryHintsClientRpc () {
-        if (!displayCategoryHints) return;
-        string hintsMessage = string.Join(", ", ActiveCategories);
+        HashSet<string> categories = new();
+        categories.UnionWith(_forcedCategories); // TODO: this might need to change later
+        if (sharedCategoryHints) categories.UnionWith(_sharedCategories);
+        if (privateCategoryHints) categories.UnionWith(_privateCategories);
+        string hintsMessage = string.Join(", ", categories);
+
         if (hintsMessage.Length == 0) return;
         Plugin.DisplayHUDTip("Don't talk about...", hintsMessage);
     }
@@ -517,15 +568,15 @@ public class PunishmentManager : NetworkBehaviour {
 
         availableCategories.UnionWith(GetSpawnableEnemiesAsCategories(currentMoon).Select(GetCategoryName));
 
-        availableCategories.RemoveWhere(category => !allowActiveCategories && ActiveCategories.Contains(category));
+        availableCategories.RemoveWhere(category => !allowActiveCategories && _forcedCategories.Contains(category));
+        availableCategories.RemoveWhere(category => !allowActiveCategories && _sharedCategories.Contains(category));
+        availableCategories.RemoveWhere(category => !allowActiveCategories && _privateCategories.Contains(category));
 
         for (int i = 0; i < Math.Max(0, Math.Min(amount, availableCategories.Count)); i++) {
             string category = availableCategories.ElementAt(Random.RandomRangeInt(0, availableCategories.Count));
             selectedCategories.Add(category);
         }
 
-        if (!ActiveCategories.Contains(GetCategoryName(Category.CurseWords)))
-            selectedCategories.Add(GetCategoryName(Category.CurseWords));
         return selectedCategories.Select(categoryName => new FixedString64Bytes(categoryName)).ToArray();
     }
 
@@ -542,7 +593,7 @@ public class PunishmentManager : NetworkBehaviour {
                 return;
         }
 
-        if (_categories.ContainsKey(categoryName)) {
+        if (Categories.ContainsKey(categoryName)) {
             Plugin.Console.LogError($"A category with the name \"{categoryName}\" has already been loaded");
             return;
         }
@@ -552,7 +603,7 @@ public class PunishmentManager : NetworkBehaviour {
         if (words.Length > CategoryWordsMaxLength) {
             string logMessage =
                 $"Words for category \"{categoryName}\" exceeds maximum length ({CategoryWordsMaxLength})";
-            if (_categories.Count < Enum.GetValues(typeof(Category)).Length) {
+            if (Categories.Count < Enum.GetValues(typeof(Category)).Length) {
                 Plugin.Console.LogWarning(logMessage);
                 words = words[..CategoryWordsMaxLength];
             }
@@ -563,7 +614,7 @@ public class PunishmentManager : NetworkBehaviour {
         }
         else if (words.Length == 0) {
             string logMessage = $"No words found for category \"{categoryName}\"";
-            if (_categories.Count < Enum.GetValues(typeof(Category)).Length) {
+            if (Categories.Count < Enum.GetValues(typeof(Category)).Length) {
                 Plugin.Console.LogWarning(logMessage);
             }
             else {
@@ -572,7 +623,7 @@ public class PunishmentManager : NetworkBehaviour {
             }
         }
 
-        _categories.Add(categoryName, ParseSplitString(words));
+        Categories.Add(categoryName, ParseSplitString(words));
         Plugin.Console.LogInfo($"Loaded category \"{categoryName}\" with words \"{words}\"");
     }
 
@@ -620,10 +671,18 @@ public class PunishmentManager : NetworkBehaviour {
             : category.ToString();
     }
 
-    private void LogActiveCategories () {
+    private void LogCategories () {
         Plugin.Console.LogInfo(
-            $"Active Categories ({ActiveCategories.Count}): {string.Join(", ", ActiveCategories)}\n" +
-            $"{string.Join(", ", ActiveWords)}");
+            $"Forced Categories ({_forcedCategories.Count}): {string.Join(", ", _forcedCategories)}");
+        Plugin.Console.LogInfo(
+            $"Shared Categories ({_sharedCategories.Count}): {string.Join(", ", _sharedCategories)}");
+        Plugin.Console.LogInfo(
+            $"Private Categories ({_privateCategories.Count}): {string.Join(", ", _privateCategories)}");
+        Plugin.Console.LogInfo($"Loaded Words ({_categoryWords.Count}): {string.Join(", ", _categoryWords)}");
+    }
+
+    public bool IsPunishCurseWords () {
+        return _forcedCategories.Contains(GetCategoryName(Category.CurseWords));
     }
 
     #endregion
